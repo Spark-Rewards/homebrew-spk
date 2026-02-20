@@ -48,8 +48,14 @@ jobs:
             exit 1
           fi
           NEW_TAG="v${VERSION}"
+          # If tag already exists, append date suffix (e.g. v0.2.5-20260220)
+          if git rev-parse "$NEW_TAG" >/dev/null 2>&1; then
+            DATE_SUFFIX=$(date -u +"%Y%m%d%H%M")
+            NEW_TAG="v${VERSION}-${DATE_SUFFIX}"
+            echo "Tag v${VERSION} already exists, using $NEW_TAG"
+          fi
           echo "new=$NEW_TAG" >> $GITHUB_OUTPUT
-          echo "Using release version from VERSION file: $NEW_TAG"
+          echo "Using release version: $NEW_TAG"
 
       - name: Create tag
         run: |
