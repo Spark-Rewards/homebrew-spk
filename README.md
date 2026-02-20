@@ -4,6 +4,8 @@ Multi-repo workspace CLI for Spark Rewards development.
 
 **New to spk?** See **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** for a guide (purpose, install, and how to use it).
 
+**Release version:** The next release version is in **[VERSION](VERSION)**. CI uses it when tagging and releasing. To cut a minor or major release (e.g. `0.2.0`), update `VERSION` before pushing to `main`; otherwise each push releases that version and CI bumps the patch for next time.
+
 ## Install
 
 ```bash

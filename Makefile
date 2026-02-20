@@ -1,6 +1,7 @@
 .PHONY: build install clean test release-dry
 
-VERSION ?= dev
+# Release version: single source of truth is the VERSION file in repo root
+VERSION ?= $(shell cat VERSION 2>/dev/null | tr -d '[:space:]' || echo "dev")
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 DATE    := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS := -s -w \
