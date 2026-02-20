@@ -5,21 +5,21 @@
 class Spk < Formula
   desc "Workspace CLI for multi-repo development"
   homepage "https://github.com/Spark-Rewards/homebrew-spk"
-  version "0.1.10"
+  version "0.1.11"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/Spark-Rewards/homebrew-spk/releases/download/v0.1.10/spk_darwin_amd64.tar.gz"
-      sha256 "fd5e3a911aca124a8db720ffff84536765c0a16d0fb74e8bfee4913f14472e80"
+      url "https://github.com/Spark-Rewards/homebrew-spk/releases/download/v0.1.11/spk_darwin_amd64.tar.gz"
+      sha256 "51ccb33eaee7ddd8207d316568a5c4efa465c3f2657245a60fbb102087ba099d"
 
       def install
         bin.install "spk"
       end
     end
     if Hardware::CPU.arm?
-      url "https://github.com/Spark-Rewards/homebrew-spk/releases/download/v0.1.10/spk_darwin_arm64.tar.gz"
-      sha256 "8d6d90b690239a771e569edb82108bcf5fbc791c917a788964f104d54d042645"
+      url "https://github.com/Spark-Rewards/homebrew-spk/releases/download/v0.1.11/spk_darwin_arm64.tar.gz"
+      sha256 "6d59b8f8dce89725c08babe5b9e62f7d8716afaa8b8e5355819de66ec2ffb42b"
 
       def install
         bin.install "spk"
@@ -29,15 +29,15 @@ class Spk < Formula
 
   on_linux do
     if Hardware::CPU.intel? && Hardware::CPU.is_64_bit?
-      url "https://github.com/Spark-Rewards/homebrew-spk/releases/download/v0.1.10/spk_linux_amd64.tar.gz"
-      sha256 "e176d62ea7cbca7a7c5afbfdffde6beaf8de300aeb90a754b6be94f90a64bd94"
+      url "https://github.com/Spark-Rewards/homebrew-spk/releases/download/v0.1.11/spk_linux_amd64.tar.gz"
+      sha256 "46ab0da4e941c5be483ad376103d6d11d618cbd669bdfdca0379c27e7f626d7a"
       def install
         bin.install "spk"
       end
     end
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/Spark-Rewards/homebrew-spk/releases/download/v0.1.10/spk_linux_arm64.tar.gz"
-      sha256 "9e78459c8456da43a386ce3e8cf0bb173a41af942088096dbe97c96a52912432"
+      url "https://github.com/Spark-Rewards/homebrew-spk/releases/download/v0.1.11/spk_linux_arm64.tar.gz"
+      sha256 "09a4e4fdc6cc50208699b806064ce8fa71bfd5d718b8b3d1f8f6dbd2660295c9"
       def install
         bin.install "spk"
       end
