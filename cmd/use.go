@@ -27,9 +27,9 @@ in the workspace manifest.
 If only a repo name is provided, it defaults to the Spark-Rewards org.
 
 Examples:
-  spk use BusinessAPI                              # clones Spark-Rewards/BusinessAPI
-  spk use other-org/SomeRepo                       # clones other-org/SomeRepo
-  spk use git@github.com:other-org/Repo.git        # full URL`,
+  spark-cli use BusinessAPI                              # clones Spark-Rewards/BusinessAPI
+  spark-cli use other-org/SomeRepo                       # clones other-org/SomeRepo
+  spark-cli use git@github.com:other-org/Repo.git        # full URL`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		repoArg := args[0]
@@ -37,7 +37,7 @@ Examples:
 		// Find workspace
 		wsPath, err := workspace.Find()
 		if err != nil {
-			return fmt.Errorf("you must be inside a spk workspace — run 'spk create workspace <path>' first")
+			return fmt.Errorf("you must be inside a spark-cli workspace — run 'spark-cli create workspace <path>' first")
 		}
 
 		// Resolve the remote URL

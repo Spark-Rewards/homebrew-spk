@@ -21,14 +21,14 @@ var createCmd = &cobra.Command{
 
 var createWorkspaceCmd = &cobra.Command{
 	Use:   "workspace [path]",
-	Short: "Create a new spk workspace",
+	Short: "Create a new spark-cli workspace",
 	Long: `Creates a new workspace directory with a .spk/workspace.json manifest.
 If the directory doesn't exist, it will be created.
 
 Examples:
-  spk create workspace .                     # current dir
-  spk create workspace ./my-project          # relative path
-  spk create workspace ~/Projects/my-app     # absolute path`,
+  spark-cli create workspace .                     # current dir
+  spark-cli create workspace ./my-project          # relative path
+  spark-cli create workspace ~/Projects/my-app     # absolute path`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		targetPath := args[0]
@@ -70,7 +70,7 @@ Examples:
 		}
 		fmt.Println("\nNext steps:")
 		fmt.Printf("  cd %s\n", absPath)
-		fmt.Println("  spk use <org/repo>")
+		fmt.Println("  spark-cli use <org/repo>")
 		return nil
 	},
 }

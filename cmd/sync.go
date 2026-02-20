@@ -29,10 +29,10 @@ When run without arguments, syncs all repos and refreshes .env.
 When a repo name is provided, only syncs that specific repo.
 
 Examples:
-  spk sync                    # sync all repos + refresh .env
-  spk sync BusinessAPI        # sync specific repo only
-  spk sync --no-env           # skip .env refresh
-  spk sync --env prod         # use prod environment for .env`,
+  spark-cli sync                    # sync all repos + refresh .env
+  spark-cli sync BusinessAPI        # sync specific repo only
+  spark-cli sync --no-env           # skip .env refresh
+  spark-cli sync --env prod         # use prod environment for .env`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsPath, err := workspace.Find()
@@ -227,12 +227,12 @@ func getTargetBranch(ws *workspace.Workspace, repo *workspace.RepoDef, repoDir s
 func syncRepo(wsPath string, ws *workspace.Workspace, name string) error {
 	repo, ok := ws.Repos[name]
 	if !ok {
-		return fmt.Errorf("repo '%s' not found — run 'spk list' to see repos", name)
+		return fmt.Errorf("repo '%s' not found — run 'spark-cli list' to see repos", name)
 	}
 
 	repoDir := filepath.Join(wsPath, repo.Path)
 	if _, err := os.Stat(repoDir); os.IsNotExist(err) {
-		return fmt.Errorf("repo directory missing — run 'spk use %s'", name)
+		return fmt.Errorf("repo directory missing — run 'spark-cli use %s'", name)
 	}
 
 	return syncRepoInternal(wsPath, ws, name, repo, repoDir)
@@ -240,7 +240,7 @@ func syncRepo(wsPath string, ws *workspace.Workspace, name string) error {
 
 func syncAllRepos(wsPath string, ws *workspace.Workspace) error {
 	if len(ws.Repos) == 0 {
-		fmt.Println("No repos in workspace — run 'spk use <repo>' to add one")
+		fmt.Println("No repos in workspace — run 'spark-cli use <repo>' to add one")
 		return nil
 	}
 

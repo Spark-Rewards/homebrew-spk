@@ -110,7 +110,7 @@ func RebaseAbort(repoDir string) error {
 
 // Stash stashes uncommitted changes
 func Stash(repoDir string) error {
-	cmd := exec.Command("git", "stash", "push", "-m", "spk-sync-autostash")
+	cmd := exec.Command("git", "stash", "push", "-m", "spark-cli-sync-autostash")
 	cmd.Dir = repoDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

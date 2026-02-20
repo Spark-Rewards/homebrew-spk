@@ -171,7 +171,7 @@ func ShowSSOSetupInstructions() {
 	fmt.Println("    CLI default output format [None]: json")
 	fmt.Println("    CLI profile name [...]: sparkrewards-dev")
 	fmt.Println()
-	fmt.Println("  After setup, run 'spk login' again.")
+	fmt.Println("  After setup, run 'spark-cli login' again.")
 	fmt.Println()
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println()
