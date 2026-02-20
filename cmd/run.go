@@ -193,13 +193,25 @@ func runScript(wsPath string, ws *workspace.Workspace, repoName, script string, 
 		return fmt.Errorf("repo directory %s does not exist", repoDir)
 	}
 
+	projType := detectProjectType(repoDir)
+
+	// Auto-install node_modules if missing for Node projects
+	if projType == projectTypeNode {
+		nodeModules := filepath.Join(repoDir, "node_modules")
+		if _, err := os.Stat(nodeModules); os.IsNotExist(err) {
+			fmt.Printf("node_modules missing — running npm install...\n")
+			if err := runShellCmd(repoDir, "npm install"); err != nil {
+				return fmt.Errorf("npm install failed: %w", err)
+			}
+			fmt.Println()
+		}
+	}
+
 	if script == "build" && !runPublished {
 		if err := autoLinkDeps(wsPath, ws, repoName); err != nil {
 			fmt.Printf("Warning: dependency linking issue: %v\n", err)
 		}
 	}
-
-	projType := detectProjectType(repoDir)
 	command := buildCommand(repoDir, projType, script, extraArgs)
 
 	if command == "" {
