@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 )
 
 const (
@@ -14,33 +13,41 @@ const (
 	SmithyBuildPath = SmithyBuildBase + "/typescript-ssdk-codegen"
 )
 
-// Link runs `npm link` in the given directory to register a package globally
-func Link(dir string, env map[string]string) error {
-	cmd := exec.Command("npm", "link")
-	cmd.Dir = dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Env = buildEnv(env)
-	return cmd.Run()
+// DirectLink creates a symlink from consumerDir/node_modules/<pkg> -> buildDir.
+// No npm commands are invoked, so no registry auth is needed.
+func DirectLink(consumerDir, pkg, buildDir string) error {
+	target := filepath.Join(consumerDir, "node_modules", pkg)
+
+	// Ensure the parent scope directory exists (e.g. node_modules/@spark-rewards)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(target), err)
+	}
+
+	// Remove whatever is there (regular dir or old symlink)
+	if err := os.RemoveAll(target); err != nil {
+		return fmt.Errorf("remove %s: %w", target, err)
+	}
+
+	absBuild, err := filepath.Abs(buildDir)
+	if err != nil {
+		return err
+	}
+
+	return os.Symlink(absBuild, target)
 }
 
-// LinkPackage runs `npm link <pkg>` in the given directory to consume a linked package
-func LinkPackage(dir, pkg string, env map[string]string) error {
-	cmd := exec.Command("npm", "link", pkg)
-	cmd.Dir = dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Env = buildEnv(env)
-	return cmd.Run()
-}
-
-// Unlink runs `npm unlink <pkg>` in the given directory
-func Unlink(dir, pkg string) error {
-	cmd := exec.Command("npm", "unlink", pkg)
-	cmd.Dir = dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+// Unlink removes a symlinked package and does NOT reinstall the published
+// version — the next `npm install` (or spark-cli sync) will restore it.
+func Unlink(consumerDir, pkg string) error {
+	target := filepath.Join(consumerDir, "node_modules", pkg)
+	info, err := os.Lstat(target)
+	if err != nil {
+		return nil // nothing to unlink
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return nil // not a symlink, leave it alone
+	}
+	return os.Remove(target)
 }
 
 // IsBuilt checks if a Smithy model directory has built artifacts
@@ -117,26 +124,4 @@ func CheckNPM() error {
 		return fmt.Errorf("npm not found — install Node.js from https://nodejs.org")
 	}
 	return nil
-}
-
-// buildEnv merges extra env vars into the current process environment.
-// Returns nil (inherit process env) if extra is empty.
-func buildEnv(extra map[string]string) []string {
-	if len(extra) == 0 {
-		return nil
-	}
-	envMap := make(map[string]string)
-	for _, e := range os.Environ() {
-		if idx := strings.IndexByte(e, '='); idx != -1 {
-			envMap[e[:idx]] = e[idx+1:]
-		}
-	}
-	for k, v := range extra {
-		envMap[k] = v
-	}
-	env := make([]string, 0, len(envMap))
-	for k, v := range envMap {
-		env = append(env, fmt.Sprintf("%s=%s", k, v))
-	}
-	return env
 }

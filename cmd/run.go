@@ -250,8 +250,8 @@ func runScript(wsPath string, ws *workspace.Workspace, repoName, script string, 
 		}
 	}
 
-	if script == "build" && !runPublished {
-		if err := autoLinkDeps(wsPath, ws, repoName, wsEnv); err != nil {
+	if !runPublished {
+		if err := autoLinkDeps(wsPath, ws, repoName); err != nil {
 			fmt.Printf("Warning: dependency linking issue: %v\n", err)
 		}
 	}
@@ -268,7 +268,7 @@ func runScript(wsPath string, ws *workspace.Workspace, repoName, script string, 
 	}
 
 	if script == "build" && !runPublished {
-		if err := autoLinkConsumers(wsPath, ws, repoName, wsEnv); err != nil {
+		if err := autoLinkConsumers(wsPath, ws, repoName); err != nil {
 			fmt.Printf("Note: %v\n", err)
 		}
 	}
@@ -421,7 +421,7 @@ func fileExistsRun(path string) bool {
 	return err == nil
 }
 
-func autoLinkDeps(wsPath string, ws *workspace.Workspace, name string, wsEnv map[string]string) error {
+func autoLinkDeps(wsPath string, ws *workspace.Workspace, name string) error {
 	modelName, mapping := findModelForConsumer(name)
 	if mapping == nil {
 		return nil
@@ -436,31 +436,24 @@ func autoLinkDeps(wsPath string, ws *workspace.Workspace, name string, wsEnv map
 	consumerDir := filepath.Join(wsPath, ws.Repos[name].Path)
 
 	if !npm.IsBuiltForCodegen(modelDir, mapping.codegen) {
-		fmt.Printf("Using published %s (local not built)\n", mapping.pkg)
-		return nil
+		return nil // local build not available, use whatever is installed
 	}
 
 	if npm.IsLinked(consumerDir, mapping.pkg) {
-		fmt.Printf("Using local %s (already linked)\n", modelName)
-		return nil
+		return nil // already symlinked
 	}
 
-	fmt.Printf("Linking local %s -> %s...\n", modelName, name)
 	buildDir := npm.BuildOutputDirForCodegen(modelDir, mapping.codegen)
 
-	if err := npm.Link(buildDir, wsEnv); err != nil {
-		return fmt.Errorf("npm link in %s failed: %w", modelName, err)
+	if err := npm.DirectLink(consumerDir, mapping.pkg, buildDir); err != nil {
+		return fmt.Errorf("link %s -> %s failed: %w", mapping.pkg, modelName, err)
 	}
 
-	if err := npm.LinkPackage(consumerDir, mapping.pkg, wsEnv); err != nil {
-		return fmt.Errorf("npm link %s failed: %w", mapping.pkg, err)
-	}
-
-	fmt.Printf("Linked: %s now uses local %s\n", name, modelName)
+	fmt.Printf("Using local %s\n", mapping.pkg)
 	return nil
 }
 
-func autoLinkConsumers(wsPath string, ws *workspace.Workspace, name string, wsEnv map[string]string) error {
+func autoLinkConsumers(wsPath string, ws *workspace.Workspace, name string) error {
 	consumers, isModel := modelConsumers[name]
 	if !isModel {
 		return nil
@@ -489,15 +482,8 @@ func autoLinkConsumers(wsPath string, ws *workspace.Workspace, name string, wsEn
 
 		buildDir := npm.BuildOutputDirForCodegen(modelDir, mapping.codegen)
 
-		fmt.Printf("Auto-linking to consumer %s (%s)...\n", mapping.consumer, mapping.pkg)
-
-		if err := npm.Link(buildDir, wsEnv); err != nil {
-			fmt.Printf("Warning: npm link failed for %s: %v\n", mapping.consumer, err)
-			continue
-		}
-
-		if err := npm.LinkPackage(consumerDir, mapping.pkg, wsEnv); err != nil {
-			fmt.Printf("Warning: npm link %s in %s failed: %v\n", mapping.pkg, mapping.consumer, err)
+		if err := npm.DirectLink(consumerDir, mapping.pkg, buildDir); err != nil {
+			fmt.Printf("Warning: link %s in %s failed: %v\n", mapping.pkg, mapping.consumer, err)
 			continue
 		}
 
