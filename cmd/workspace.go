@@ -17,9 +17,9 @@ var workspaceCmd = &cobra.Command{
 	Long: `Displays workspace info including repos, their git status, and environment.
 
 Examples:
-  spk info
-  spk status
-  spk ws`,
+  spark-cli info
+  spark-cli status
+  spark-cli ws`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsPath, err := workspace.Find()
 		if err != nil {
@@ -63,7 +63,7 @@ Examples:
 				fmt.Printf("%-20s %-15s %-10s %s\n", name, branch, status, repo.Path)
 			}
 		} else {
-			fmt.Println("No repos — run 'spk use <repo>' to add one")
+			fmt.Println("No repos — run 'spark-cli use <repo>' to add one")
 		}
 
 		globalEnv, _ := workspace.ReadGlobalEnv(wsPath)

@@ -1,7 +1,7 @@
 version: 2
 
 builds:
-  - binary: spk
+  - binary: spark-cli
     main: ./main.go
     env:
       - CGO_ENABLED=0
@@ -19,10 +19,10 @@ builds:
 
 archives:
   - formats: ['tar.gz']
-    name_template: "spk_{{ .Os }}_{{ .Arch }}"
+    name_template: "spark-cli_{{ .Os }}_{{ .Arch }}"
 
 brews:
-  - name: spk
+  - name: spark-cli
     repository:
       owner: Spark-Rewards
       name: homebrew-spk
@@ -32,9 +32,9 @@ brews:
     description: "Workspace CLI for multi-repo development"
     license: "MIT"
     install: |
-      bin.install "spk"
+      bin.install "spark-cli"
     test: |
-      system "#{bin}/spk", "version"
+      system "#{bin}/spark-cli", "version"
 
 checksum:
   name_template: "checksums.txt"

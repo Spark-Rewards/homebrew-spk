@@ -10,11 +10,11 @@ LDFLAGS := -s -w \
 	-X github.com/Spark-Rewards/homebrew-spk/cmd.Date=$(DATE)
 
 build:
-	go build -ldflags '$(LDFLAGS)' -o bin/spk main.go
+	go build -ldflags '$(LDFLAGS)' -o bin/spark-cli main.go
 
 install: build
-	cp bin/spk /usr/local/bin/spk
-	@echo "spk installed to /usr/local/bin/spk"
+	cp bin/spark-cli /usr/local/bin/spark-cli
+	@echo "spark-cli installed to /usr/local/bin/spark-cli"
 
 clean:
 	rm -rf bin/ dist/

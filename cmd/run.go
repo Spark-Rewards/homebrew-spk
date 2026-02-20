@@ -101,22 +101,22 @@ func getDynamicRunHelp() string {
 	base := `Wrapper for running scripts in the current repo. Automatically detects
 the project type and runs the appropriate command.
 
-For Node/npm projects:     spk run <script>  ->  npm run <script>
-For Gradle projects:       spk run <task>    ->  ./gradlew <task>
-For Go projects:           spk run build     ->  go build ./...
-For Make projects:         spk run <target>  ->  make <target>
+For Node/npm projects:     spark-cli run <script>  ->  npm run <script>
+For Gradle projects:       spark-cli run <task>    ->  ./gradlew <task>
+For Go projects:           spark-cli run build     ->  go build ./...
+For Make projects:         spark-cli run <target>  ->  make <target>
 
 For 'build', automatically links locally-built dependencies (like Amazon's Brazil Build).
 Use --recursive (-r) with 'build' to build dependencies first.
 
 Examples:
-  spk run                    # list available scripts
-  spk run build              # npm run build / ./gradlew build
-  spk run build -r           # build dependencies first, then this repo
-  spk run test               # npm test / ./gradlew test
-  spk run start              # npm run start
-  spk run lint               # npm run lint
-  spk run clean build        # ./gradlew clean build (Gradle)`
+  spark-cli run                    # list available scripts
+  spark-cli run build              # npm run build / ./gradlew build
+  spark-cli run build -r           # build dependencies first, then this repo
+  spark-cli run test               # npm test / ./gradlew test
+  spark-cli run start              # npm run start
+  spark-cli run lint               # npm run lint
+  spark-cli run clean build        # ./gradlew clean build (Gradle)`
 
 	wsPath, err := workspace.Find()
 	if err != nil {
@@ -164,7 +164,7 @@ Examples:
 
 	base += fmt.Sprintf("\n\nAvailable scripts in %s:", repoName)
 	for _, name := range names {
-		base += fmt.Sprintf("\n  spk run %s", name)
+		base += fmt.Sprintf("\n  spark-cli run %s", name)
 	}
 
 	return base
@@ -210,7 +210,7 @@ func runScript(wsPath string, ws *workspace.Workspace, repoName, script string, 
 	// Build env: workspace .env file + workspace.json env + auto-resolved GITHUB_TOKEN
 	wsEnv := make(map[string]string)
 
-	// Load .env file from workspace root (written by `spk sync`)
+	// Load .env file from workspace root (written by `spark-cli sync`)
 	dotEnv, _ := workspace.ReadGlobalEnv(wsPath)
 	for k, v := range dotEnv {
 		wsEnv[k] = v
@@ -392,22 +392,22 @@ func showAvailableScripts(repoDir string, projType projectType, repoName string)
 			}
 			sort.Strings(names)
 			for _, name := range names {
-				fmt.Printf("  spk run %s\n", name)
+				fmt.Printf("  spark-cli run %s\n", name)
 			}
 		}
 	case projectTypeGradle:
-		fmt.Println("  spk run build")
-		fmt.Println("  spk run test")
-		fmt.Println("  spk run clean")
-		fmt.Println("  spk run clean build")
+		fmt.Println("  spark-cli run build")
+		fmt.Println("  spark-cli run test")
+		fmt.Println("  spark-cli run clean")
+		fmt.Println("  spark-cli run clean build")
 		fmt.Println("  (or any Gradle task)")
 	case projectTypeGo:
-		fmt.Println("  spk run build")
-		fmt.Println("  spk run test")
-		fmt.Println("  spk run fmt")
-		fmt.Println("  spk run vet")
+		fmt.Println("  spark-cli run build")
+		fmt.Println("  spark-cli run test")
+		fmt.Println("  spark-cli run fmt")
+		fmt.Println("  spark-cli run vet")
 	case projectTypeMake:
-		fmt.Println("  spk run <target>")
+		fmt.Println("  spark-cli run <target>")
 		fmt.Println("  (any Makefile target)")
 	default:
 		fmt.Println("  (no recognized project type)")

@@ -16,9 +16,9 @@ var envCmd = &cobra.Command{
 	Long: `Manage workspace environment variables. Run without subcommand to show current values.
 
 Examples:
-  spk env                           # show current env
-  spk env set KEY=VALUE             # set a variable
-  spk env link                      # symlink .env to all repos`,
+  spark-cli env                           # show current env
+  spark-cli env set KEY=VALUE             # set a variable
+  spark-cli env link                      # symlink .env to all repos`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsPath, err := workspace.Find()
 		if err != nil {
@@ -28,7 +28,7 @@ Examples:
 		globalEnv, _ := workspace.ReadGlobalEnv(wsPath)
 		if len(globalEnv) == 0 {
 			fmt.Println("No environment variables set")
-			fmt.Println("Run 'spk sync' to fetch credentials from AWS")
+			fmt.Println("Run 'spark-cli sync' to fetch credentials from AWS")
 			return nil
 		}
 
@@ -73,7 +73,7 @@ var envExportCmd = &cobra.Command{
 	Long: `Outputs env vars as shell export statements.
 
 Usage:
-  eval $(spk env export)`,
+  eval $(spark-cli env export)`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsPath, err := workspace.Find()
 		if err != nil {
