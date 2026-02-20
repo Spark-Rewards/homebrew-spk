@@ -2,20 +2,24 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
+	"github.com/Spark-Rewards/homebrew-spk/internal/git"
 	"github.com/Spark-Rewards/homebrew-spk/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
 var workspaceCmd = &cobra.Command{
-	Use:   "workspace",
-	Short: "Show current workspace info",
-	Long: `Displays information about the current workspace including name,
-AWS profile, registered repos, and environment variables.
+	Use:     "info",
+	Short:   "Show workspace info and repo status",
+	Aliases: []string{"workspace", "ws", "status"},
+	Long: `Displays workspace info including repos, their git status, and environment.
 
-Example:
-  spk workspace`,
-	Aliases: []string{"ws"},
+Examples:
+  spk info
+  spk status
+  spk ws`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsPath, err := workspace.Find()
 		if err != nil {
@@ -29,26 +33,48 @@ Example:
 
 		fmt.Printf("Workspace:   %s\n", ws.Name)
 		fmt.Printf("Location:    %s\n", wsPath)
-		fmt.Printf("Created:     %s\n", ws.CreatedAt)
 		fmt.Printf("AWS Profile: %s\n", orDefault(ws.AWSProfile, "(not set)"))
-		fmt.Printf("AWS Region:  %s\n", orDefault(ws.AWSRegion, "(not set)"))
-		fmt.Printf("Repos:       %d\n", len(ws.Repos))
-
-		if len(ws.Env) > 0 {
-			fmt.Println("\nEnvironment:")
-			for k, v := range ws.Env {
-				fmt.Printf("  %s=%s\n", k, v)
-			}
-		}
+		fmt.Printf("Environment: %s\n", orDefault(ws.SSMEnvPath, "beta"))
+		fmt.Println()
 
 		if len(ws.Repos) > 0 {
-			fmt.Println("\nRepositories:")
+			fmt.Printf("%-20s %-15s %-10s %s\n", "REPO", "BRANCH", "STATUS", "PATH")
+			fmt.Printf("%-20s %-15s %-10s %s\n", "----", "------", "------", "----")
+
 			for name, repo := range ws.Repos {
-				deps := ""
-				if len(repo.Dependencies) > 0 {
-					deps = fmt.Sprintf(" (depends: %v)", repo.Dependencies)
+				repoDir := filepath.Join(wsPath, repo.Path)
+				branch := "-"
+				status := "missing"
+
+				if _, err := os.Stat(repoDir); err == nil {
+					if git.IsRepo(repoDir) {
+						b, _ := git.CurrentBranch(repoDir)
+						if b != "" {
+							branch = b
+						}
+						if git.IsDirty(repoDir) {
+							status = "dirty"
+						} else {
+							status = "clean"
+						}
+					}
 				}
-				fmt.Printf("  %s → %s%s\n", name, repo.Remote, deps)
+
+				fmt.Printf("%-20s %-15s %-10s %s\n", name, branch, status, repo.Path)
+			}
+		} else {
+			fmt.Println("No repos — run 'spk use <repo>' to add one")
+		}
+
+		globalEnv, _ := workspace.ReadGlobalEnv(wsPath)
+		if len(globalEnv) > 0 {
+			fmt.Println("\nEnvironment (.env):")
+			for k, v := range globalEnv {
+				display := v
+				if len(display) > 40 {
+					display = display[:37] + "..."
+				}
+				fmt.Printf("  %s=%s\n", k, display)
 			}
 		}
 

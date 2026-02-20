@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/Spark-Rewards/homebrew-spk/internal/workspace"
@@ -10,30 +12,32 @@ import (
 
 var envCmd = &cobra.Command{
 	Use:   "env",
-	Short: "Manage workspace environment variables",
-}
+	Short: "Manage environment variables",
+	Long: `Manage workspace environment variables. Run without subcommand to show current values.
 
-var envListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List workspace environment variables",
+Examples:
+  spk env                           # show current env
+  spk env set KEY=VALUE             # set a variable
+  spk env link                      # symlink .env to all repos`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsPath, err := workspace.Find()
 		if err != nil {
 			return err
 		}
 
-		ws, err := workspace.Load(wsPath)
-		if err != nil {
-			return err
-		}
-
-		if len(ws.Env) == 0 {
+		globalEnv, _ := workspace.ReadGlobalEnv(wsPath)
+		if len(globalEnv) == 0 {
 			fmt.Println("No environment variables set")
+			fmt.Println("Run 'spk sync' to fetch credentials from AWS")
 			return nil
 		}
 
-		for k, v := range ws.Env {
-			fmt.Printf("%s=%s\n", k, v)
+		for k, v := range globalEnv {
+			display := v
+			if len(display) > 50 {
+				display = display[:47] + "..."
+			}
+			fmt.Printf("%s=%s\n", k, display)
 		}
 		return nil
 	},
@@ -41,43 +45,7 @@ var envListCmd = &cobra.Command{
 
 var envSetCmd = &cobra.Command{
 	Use:   "set <KEY=VALUE> [KEY=VALUE...]",
-	Short: "Set workspace environment variables",
-	Long: `Sets one or more environment variables in the workspace manifest.
-
-Example:
-  spk env set NODE_ENV=development AWS_REGION=us-east-1`,
-	Args: cobra.MinimumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		wsPath, err := workspace.Find()
-		if err != nil {
-			return err
-		}
-
-		ws, err := workspace.Load(wsPath)
-		if err != nil {
-			return err
-		}
-
-		if ws.Env == nil {
-			ws.Env = make(map[string]string)
-		}
-
-		for _, arg := range args {
-			parts := strings.SplitN(arg, "=", 2)
-			if len(parts) != 2 {
-				return fmt.Errorf("invalid format '%s' — use KEY=VALUE", arg)
-			}
-			ws.Env[parts[0]] = parts[1]
-			fmt.Printf("  %s=%s\n", parts[0], parts[1])
-		}
-
-		return workspace.Save(wsPath, ws)
-	},
-}
-
-var envUnsetCmd = &cobra.Command{
-	Use:   "unset <KEY> [KEY...]",
-	Short: "Remove workspace environment variables",
+	Short: "Set environment variables",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsPath, err := workspace.Find()
@@ -85,28 +53,46 @@ var envUnsetCmd = &cobra.Command{
 			return err
 		}
 
-		ws, err := workspace.Load(wsPath)
+		newVars := make(map[string]string)
+		for _, arg := range args {
+			parts := strings.SplitN(arg, "=", 2)
+			if len(parts) != 2 {
+				return fmt.Errorf("invalid format '%s' — use KEY=VALUE", arg)
+			}
+			newVars[parts[0]] = parts[1]
+			fmt.Printf("%s=%s\n", parts[0], parts[1])
+		}
+
+		return workspace.WriteGlobalEnv(wsPath, newVars)
+	},
+}
+
+var envExportCmd = &cobra.Command{
+	Use:   "export",
+	Short: "Print export statements for shell",
+	Long: `Outputs env vars as shell export statements.
+
+Usage:
+  eval $(spk env export)`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		wsPath, err := workspace.Find()
 		if err != nil {
 			return err
 		}
 
-		for _, key := range args {
-			delete(ws.Env, key)
-			fmt.Printf("  removed %s\n", key)
+		globalEnv, _ := workspace.ReadGlobalEnv(wsPath)
+		for k, v := range globalEnv {
+			fmt.Printf("export %s=%q\n", k, v)
 		}
-
-		return workspace.Save(wsPath, ws)
+		return nil
 	},
 }
 
-// ExportString returns a shell-compatible export string for all env vars
-var envExportCmd = &cobra.Command{
-	Use:   "export",
-	Short: "Print export statements for shell eval",
-	Long: `Outputs workspace env vars as shell export statements.
-Use with eval to load into your shell:
-
-  eval $(spk env export)`,
+var envLinkCmd = &cobra.Command{
+	Use:   "link",
+	Short: "Symlink .env to all repos",
+	Long: `Creates symlinks from each repo's .env to the workspace's global .env file.
+This allows all repos to share the same environment variables.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsPath, err := workspace.Find()
 		if err != nil {
@@ -118,17 +104,51 @@ Use with eval to load into your shell:
 			return err
 		}
 
-		for k, v := range ws.Env {
-			fmt.Printf("export %s=%q\n", k, v)
+		globalEnvPath := workspace.GlobalEnvPath(wsPath)
+
+		if _, err := os.Stat(globalEnvPath); os.IsNotExist(err) {
+			if err := os.WriteFile(globalEnvPath, []byte(""), 0644); err != nil {
+				return fmt.Errorf("failed to create .env: %w", err)
+			}
 		}
+
+		var linked int
+		for name, repo := range ws.Repos {
+			repoDir := filepath.Join(wsPath, repo.Path)
+			if _, err := os.Stat(repoDir); os.IsNotExist(err) {
+				continue
+			}
+
+			repoEnvPath := filepath.Join(repoDir, ".env")
+
+			info, err := os.Lstat(repoEnvPath)
+			if err == nil {
+				if info.Mode()&os.ModeSymlink != 0 {
+					os.Remove(repoEnvPath)
+				} else {
+					fmt.Printf("[skip] %s — .env exists (not a symlink)\n", name)
+					continue
+				}
+			}
+
+			relPath, _ := filepath.Rel(repoDir, globalEnvPath)
+			if err := os.Symlink(relPath, repoEnvPath); err != nil {
+				fmt.Printf("[fail] %s — %v\n", name, err)
+				continue
+			}
+
+			fmt.Printf("[ok]   %s\n", name)
+			linked++
+		}
+
+		fmt.Printf("\n%d repo(s) linked to workspace .env\n", linked)
 		return nil
 	},
 }
 
 func init() {
-	envCmd.AddCommand(envListCmd)
 	envCmd.AddCommand(envSetCmd)
-	envCmd.AddCommand(envUnsetCmd)
 	envCmd.AddCommand(envExportCmd)
+	envCmd.AddCommand(envLinkCmd)
 	rootCmd.AddCommand(envCmd)
 }

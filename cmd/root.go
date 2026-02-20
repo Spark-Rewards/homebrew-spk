@@ -9,16 +9,23 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "spk",
-	Short: "spk — workspace CLI for multi-repo development",
-	Long: `spk is a workspace-oriented CLI that keeps multiple repositories
-in sync, manages AWS credentials at the workspace level, and provides
-dependency-aware builds across projects.
+	Short: "spk — multi-repo workspace CLI",
+	Long: `spk manages multi-repo workspaces with shared environment and smart builds.
 
-Get started:
+Core Commands:
+  create workspace <path>   Create a new workspace
+  use <repo>                Add a repo to the workspace  
+  sync                      Sync repos + refresh .env (auto-login)
+  build <repo>              Build with local dependency linking
+  test <repo>               Run tests
+
+Quick Start:
   spk create workspace ./my-project
   cd my-project
-  spk use org/repo-name
-  spk sync`,
+  spk use Spark-Rewards/AppModel
+  spk use Spark-Rewards/AppAPI
+  spk sync
+  spk build AppModel --link`,
 }
 
 func Execute() {
