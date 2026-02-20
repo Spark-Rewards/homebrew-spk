@@ -71,6 +71,26 @@ Examples:
 	},
 }
 
+// SSM parameter suffixes to fetch — mirrors sync.sh
+var ssmParamSuffixes = []string{
+	"customerUserPoolId",
+	"customerWebClientId",
+	"identityPoolIdCustomer",
+	"appConfig",
+	"googleApiKey_Android",
+	"githubToken",
+}
+
+// Maps SSM param suffix → .env key name
+var ssmToEnvKey = map[string]string{
+	"customerUserPoolId":      "USERPOOL_ID",
+	"customerWebClientId":     "WEB_CLIENT_ID",
+	"identityPoolIdCustomer":  "IDENTITY_POOL_ID",
+	"appConfig":               "APP_CONFIG_VALUES",
+	"googleApiKey_Android":    "GOOGLE_API_KEY_ANDROID",
+	"githubToken":             "GITHUB_TOKEN",
+}
+
 func refreshEnv(wsPath string, ws *workspace.Workspace) error {
 	if err := aws.CheckCLI(); err != nil {
 		return err
@@ -98,13 +118,27 @@ func refreshEnv(wsPath string, ws *workspace.Workspace) error {
 		}
 	}
 
-	fmt.Printf("Fetching GITHUB_TOKEN from /app/%s/githubToken...\n", env)
-	token, err := github.FetchTokenFromSSM(profile, env, region)
+	fmt.Printf("Fetching environment from /app/%s/... (%d parameters)\n", env, len(ssmParamSuffixes))
+	ssmVars, err := github.FetchMultipleFromSSM(profile, env, region, ssmParamSuffixes)
 	if err != nil {
-		return fmt.Errorf("failed to fetch token: %w", err)
+		return fmt.Errorf("failed to fetch parameters: %w", err)
 	}
 
-	envVars := map[string]string{"GITHUB_TOKEN": token}
+	// Map SSM keys to .env keys
+	envVars := make(map[string]string)
+	for ssmKey, value := range ssmVars {
+		if envKey, ok := ssmToEnvKey[ssmKey]; ok {
+			envVars[envKey] = value
+		} else {
+			envVars[ssmKey] = value
+		}
+	}
+
+	// Add static env vars
+	envVars["AWS_REGION"] = region
+	envVars["APP_ENV"] = env
+
+	// Merge workspace env vars
 	for k, v := range ws.Env {
 		envVars[k] = v
 	}
@@ -113,7 +147,7 @@ func refreshEnv(wsPath string, ws *workspace.Workspace) error {
 		return err
 	}
 
-	fmt.Printf("Updated %s\n", workspace.GlobalEnvPath(wsPath))
+	fmt.Printf("Updated %s (%d variables)\n", workspace.GlobalEnvPath(wsPath), len(envVars))
 	return nil
 }
 

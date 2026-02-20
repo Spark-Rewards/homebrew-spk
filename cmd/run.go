@@ -193,11 +193,21 @@ func runScript(wsPath string, ws *workspace.Workspace, repoName, script string, 
 		return fmt.Errorf("repo directory %s does not exist", repoDir)
 	}
 
-	// Build env: workspace env + auto-resolved GITHUB_TOKEN
+	// Build env: workspace .env file + workspace.json env + auto-resolved GITHUB_TOKEN
 	wsEnv := make(map[string]string)
+
+	// Load .env file from workspace root (written by `spk sync`)
+	dotEnv, _ := workspace.ReadGlobalEnv(wsPath)
+	for k, v := range dotEnv {
+		wsEnv[k] = v
+	}
+
+	// Overlay workspace.json env (higher priority)
 	for k, v := range ws.Env {
 		wsEnv[k] = v
 	}
+
+	// Fallback: if still no GITHUB_TOKEN, try gh auth
 	wsEnv = ensureGitHubToken(wsEnv)
 
 	projType := detectProjectType(repoDir)
