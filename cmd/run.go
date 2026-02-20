@@ -193,6 +193,13 @@ func runScript(wsPath string, ws *workspace.Workspace, repoName, script string, 
 		return fmt.Errorf("repo directory %s does not exist", repoDir)
 	}
 
+	// Build env: workspace env + auto-resolved GITHUB_TOKEN
+	wsEnv := make(map[string]string)
+	for k, v := range ws.Env {
+		wsEnv[k] = v
+	}
+	wsEnv = ensureGitHubToken(wsEnv)
+
 	projType := detectProjectType(repoDir)
 
 	// Auto-install node_modules if missing for Node projects
@@ -200,7 +207,7 @@ func runScript(wsPath string, ws *workspace.Workspace, repoName, script string, 
 		nodeModules := filepath.Join(repoDir, "node_modules")
 		if _, err := os.Stat(nodeModules); os.IsNotExist(err) {
 			fmt.Printf("node_modules missing — running npm install...\n")
-			if err := runShellCmd(repoDir, "npm install"); err != nil {
+			if err := runShellCmdWithEnv(repoDir, "npm install", wsEnv); err != nil {
 				return fmt.Errorf("npm install failed: %w", err)
 			}
 			fmt.Println()
@@ -220,7 +227,7 @@ func runScript(wsPath string, ws *workspace.Workspace, repoName, script string, 
 	}
 
 	fmt.Printf("=== %s: %s ===\n", repoName, command)
-	if err := runShellCmd(repoDir, command); err != nil {
+	if err := runShellCmdWithEnv(repoDir, command, wsEnv); err != nil {
 		return fmt.Errorf("%s failed: %w", script, err)
 	}
 
@@ -538,12 +545,60 @@ func containsRun(slice []string, item string) bool {
 }
 
 func runShellCmd(dir, command string) error {
+	return runShellCmdWithEnv(dir, command, nil)
+}
+
+func runShellCmdWithEnv(dir, command string, wsEnv map[string]string) error {
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
+
+	if len(wsEnv) > 0 {
+		// Start with current environment, overlay workspace env
+		env := os.Environ()
+		for k, v := range wsEnv {
+			env = append(env, fmt.Sprintf("%s=%s", k, v))
+		}
+		cmd.Env = env
+	}
+
 	return cmd.Run()
+}
+
+// ensureGitHubToken checks if GITHUB_TOKEN is set in the environment or workspace env.
+// If not, attempts to source it from `gh auth token`.
+func ensureGitHubToken(wsEnv map[string]string) map[string]string {
+	// Already set in process env
+	if os.Getenv("GITHUB_TOKEN") != "" {
+		return wsEnv
+	}
+
+	// Already set in workspace env
+	if wsEnv != nil {
+		if _, ok := wsEnv["GITHUB_TOKEN"]; ok {
+			return wsEnv
+		}
+	}
+
+	// Try to get from gh CLI
+	out, err := exec.Command("gh", "auth", "token").Output()
+	if err != nil {
+		return wsEnv
+	}
+
+	token := strings.TrimSpace(string(out))
+	if token == "" {
+		return wsEnv
+	}
+
+	if wsEnv == nil {
+		wsEnv = make(map[string]string)
+	}
+	wsEnv["GITHUB_TOKEN"] = token
+	fmt.Println("Using GITHUB_TOKEN from gh auth")
+	return wsEnv
 }
 
 func init() {
