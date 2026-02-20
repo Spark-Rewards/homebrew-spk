@@ -9,45 +9,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Spark-Rewards/homebrew-spark-cli/internal/npm"
 	"github.com/Spark-Rewards/homebrew-spark-cli/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
-var (
-	runRecursive bool
-	runPublished bool
-)
-
-type consumerMapping struct {
-	consumer string
-	pkg      string
-	codegen  string // smithy codegen folder name
-}
-
-// Each model can have multiple consumers with different codegen outputs
-var modelConsumers = map[string][]consumerMapping{
-	"AppModel": {
-		{consumer: "AppAPI", pkg: "@spark-rewards/sra-sdk", codegen: "typescript-ssdk-codegen"},
-		{consumer: "MobileApp", pkg: "@spark-rewards/sra-client", codegen: "typescript-client-codegen"},
-	},
-	"BusinessModel": {
-		{consumer: "BusinessAPI", pkg: "@spark-rewards/srw-sdk", codegen: "typescript-ssdk-codegen"},
-		{consumer: "BusinessWebsite", pkg: "@spark-rewards/srw-client", codegen: "typescript-client-codegen"},
-	},
-}
-
-// Reverse lookup: consumer -> (model, mapping)
-func findModelForConsumer(consumer string) (string, *consumerMapping) {
-	for model, consumers := range modelConsumers {
-		for i := range consumers {
-			if consumers[i].consumer == consumer {
-				return model, &consumers[i]
-			}
-		}
-	}
-	return "", nil
-}
+var runRecursive bool
 
 type projectType int
 
@@ -107,7 +73,6 @@ For Gradle projects:       spark-cli run <task>    ->  ./gradlew <task>
 For Go projects:           spark-cli run build     ->  go build ./...
 For Make projects:         spark-cli run <target>  ->  make <target>
 
-For 'build', automatically links locally-built dependencies (like Amazon's Brazil Build).
 Use --recursive (-r) with 'build' to build dependencies first.
 
 Examples:
@@ -250,11 +215,6 @@ func runScript(wsPath string, ws *workspace.Workspace, repoName, script string, 
 		}
 	}
 
-	if !runPublished {
-		if err := autoLinkDeps(wsPath, ws, repoName); err != nil {
-			fmt.Printf("Warning: dependency linking issue: %v\n", err)
-		}
-	}
 	command := buildCommand(repoDir, projType, script, extraArgs)
 
 	if command == "" {
@@ -265,12 +225,6 @@ func runScript(wsPath string, ws *workspace.Workspace, repoName, script string, 
 	fmt.Printf("=== %s: %s ===\n", repoName, command)
 	if err := runShellCmdWithEnv(repoDir, command, wsEnv); err != nil {
 		return fmt.Errorf("%s failed: %w", script, err)
-	}
-
-	if script == "build" && !runPublished {
-		if err := autoLinkConsumers(wsPath, ws, repoName); err != nil {
-			fmt.Printf("Note: %v\n", err)
-		}
 	}
 
 	return nil
@@ -421,78 +375,6 @@ func fileExistsRun(path string) bool {
 	return err == nil
 }
 
-func autoLinkDeps(wsPath string, ws *workspace.Workspace, name string) error {
-	modelName, mapping := findModelForConsumer(name)
-	if mapping == nil {
-		return nil
-	}
-
-	modelRepo, exists := ws.Repos[modelName]
-	if !exists {
-		return nil
-	}
-
-	modelDir := filepath.Join(wsPath, modelRepo.Path)
-	consumerDir := filepath.Join(wsPath, ws.Repos[name].Path)
-
-	if !npm.IsBuiltForCodegen(modelDir, mapping.codegen) {
-		return nil // local build not available, use whatever is installed
-	}
-
-	if npm.IsLinked(consumerDir, mapping.pkg) {
-		return nil // already symlinked
-	}
-
-	buildDir := npm.BuildOutputDirForCodegen(modelDir, mapping.codegen)
-
-	if err := npm.DirectLink(consumerDir, mapping.pkg, buildDir); err != nil {
-		return fmt.Errorf("link %s -> %s failed: %w", mapping.pkg, modelName, err)
-	}
-
-	fmt.Printf("Using local %s\n", mapping.pkg)
-	return nil
-}
-
-func autoLinkConsumers(wsPath string, ws *workspace.Workspace, name string) error {
-	consumers, isModel := modelConsumers[name]
-	if !isModel {
-		return nil
-	}
-
-	modelDir := filepath.Join(wsPath, ws.Repos[name].Path)
-
-	for _, mapping := range consumers {
-		consumerRepo, exists := ws.Repos[mapping.consumer]
-		if !exists {
-			continue
-		}
-
-		consumerDir := filepath.Join(wsPath, consumerRepo.Path)
-		if _, err := os.Stat(consumerDir); os.IsNotExist(err) {
-			continue
-		}
-
-		if !npm.IsBuiltForCodegen(modelDir, mapping.codegen) {
-			continue
-		}
-
-		if npm.IsLinked(consumerDir, mapping.pkg) {
-			continue
-		}
-
-		buildDir := npm.BuildOutputDirForCodegen(modelDir, mapping.codegen)
-
-		if err := npm.DirectLink(consumerDir, mapping.pkg, buildDir); err != nil {
-			fmt.Printf("Warning: link %s in %s failed: %v\n", mapping.pkg, mapping.consumer, err)
-			continue
-		}
-
-		fmt.Printf("Linked: %s now uses local %s\n", mapping.consumer, name)
-	}
-
-	return nil
-}
-
 func buildRecursivelyRun(wsPath string, ws *workspace.Workspace, target string) error {
 	deps := getDepsForRun(ws, target)
 
@@ -531,15 +413,6 @@ func getDepsForRun(ws *workspace.Workspace, name string) []string {
 		}
 		seen[n] = true
 
-		if modelName, mapping := findModelForConsumer(n); mapping != nil {
-			if _, exists := ws.Repos[modelName]; exists {
-				collect(modelName)
-				if !containsRun(deps, modelName) {
-					deps = append(deps, modelName)
-				}
-			}
-		}
-
 		if repo, exists := ws.Repos[n]; exists {
 			for _, dep := range repo.Dependencies {
 				if _, depExists := ws.Repos[dep]; depExists {
@@ -554,7 +427,6 @@ func getDepsForRun(ws *workspace.Workspace, name string) []string {
 
 	collect(name)
 
-	seen[name] = false
 	var result []string
 	for _, d := range deps {
 		if d != name {
@@ -571,10 +443,6 @@ func containsRun(slice []string, item string) bool {
 		}
 	}
 	return false
-}
-
-func runShellCmd(dir, command string) error {
-	return runShellCmdWithEnv(dir, command, nil)
 }
 
 func runShellCmdWithEnv(dir, command string, wsEnv map[string]string) error {
@@ -648,6 +516,5 @@ func ensureGitHubToken(wsEnv map[string]string) map[string]string {
 
 func init() {
 	runCmd.Flags().BoolVarP(&runRecursive, "recursive", "r", false, "Build dependencies first (only for 'build')")
-	runCmd.Flags().BoolVar(&runPublished, "published", false, "Force use of published packages (no local linking)")
 	rootCmd.AddCommand(runCmd)
 }
