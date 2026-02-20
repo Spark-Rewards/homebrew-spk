@@ -1,0 +1,46 @@
+version: 2
+
+builds:
+  - binary: spk
+    main: ./main.go
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/Spark-Rewards/homebrew-spk/cmd.Version={{.Version}}
+      - -X github.com/Spark-Rewards/homebrew-spk/cmd.Commit={{.Commit}}
+      - -X github.com/Spark-Rewards/homebrew-spk/cmd.Date={{.Date}}
+
+archives:
+  - formats: ['tar.gz']
+    name_template: "spk_{{ .Os }}_{{ .Arch }}"
+
+brews:
+  - repository:
+      owner: Spark-Rewards
+      name: homebrew-spk
+      token: "{{ .Env.GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/Spark-Rewards/homebrew-spk"
+    description: "Workspace CLI for multi-repo development"
+    license: "MIT"
+    install: |
+      bin.install "spk"
+    test: |
+      system "#{bin}/spk", "version"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
