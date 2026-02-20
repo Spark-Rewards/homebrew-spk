@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Spark-Rewards/homebrew-spk/internal/npm"
@@ -16,7 +17,6 @@ import (
 var (
 	runRecursive bool
 	runPublished bool
-	runWatch     bool
 )
 
 type depMapping struct {
@@ -34,26 +34,42 @@ var apiToModel = map[string]string{
 	"BusinessAPI": "BusinessModel",
 }
 
-var runCmd = &cobra.Command{
-	Use:   "run <script>",
-	Short: "Run an npm script in the current repo",
-	Long: `Runs an npm script (build, test, etc.) in the current repo.
+type projectType int
 
-Must be run from inside a repo directory.
+const (
+	projectTypeNode projectType = iota
+	projectTypeGradle
+	projectTypeGo
+	projectTypeMake
+	projectTypeUnknown
+)
+
+var runCmd = &cobra.Command{
+	Use:   "run <script> [args...]",
+	Short: "Run a script in the current repo",
+	Long: `Wrapper for running scripts in the current repo. Automatically detects
+the project type and runs the appropriate command.
+
+For Node/npm projects:     spk run <script>  ->  npm run <script>
+For Gradle projects:       spk run <task>    ->  ./gradlew <task>
+For Go projects:           spk run build     ->  go build ./...
+For Make projects:         spk run <target>  ->  make <target>
 
 For 'build', automatically links locally-built dependencies (like Amazon's Brazil Build).
 Use --recursive (-r) with 'build' to build dependencies first.
 
 Examples:
-  spk run build              # npm run build (with local dependency linking)
+  spk run build              # npm run build / ./gradlew build
   spk run build -r           # build dependencies first, then this repo
-  spk run test               # npm test
-  spk run test --watch       # npm run test:watch
+  spk run test               # npm test / ./gradlew test
+  spk run start              # npm run start
   spk run lint               # npm run lint
-  spk run start              # npm run start`,
-	Args: cobra.ExactArgs(1),
+  spk run clean build        # ./gradlew clean build (Gradle)`,
+	Args:               cobra.MinimumNArgs(1),
+	DisableFlagParsing: false,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		script := args[0]
+		extraArgs := args[1:]
 
 		wsPath, err := workspace.Find()
 		if err != nil {
@@ -74,7 +90,7 @@ Examples:
 			return buildRecursivelyRun(wsPath, ws, repoName)
 		}
 
-		return runScript(wsPath, ws, repoName, script)
+		return runScript(wsPath, ws, repoName, script, extraArgs)
 	},
 }
 
@@ -104,7 +120,7 @@ func isSubdirRun(parent, child string) bool {
 	return !filepath.IsAbs(rel) && len(rel) > 0 && rel[0] != '.'
 }
 
-func runScript(wsPath string, ws *workspace.Workspace, repoName, script string) error {
+func runScript(wsPath string, ws *workspace.Workspace, repoName, script string, extraArgs []string) error {
 	repo, ok := ws.Repos[repoName]
 	if !ok {
 		return fmt.Errorf("repo '%s' not found in workspace", repoName)
@@ -121,9 +137,12 @@ func runScript(wsPath string, ws *workspace.Workspace, repoName, script string) 
 		}
 	}
 
-	command := getScriptCommand(repoName, repo, repoDir, script)
+	projType := detectProjectType(repoDir)
+	command := buildCommand(repoDir, projType, script, extraArgs)
+
 	if command == "" {
-		return fmt.Errorf("script '%s' not found in %s", script, repoName)
+		showAvailableScripts(repoDir, projType, repoName)
+		return fmt.Errorf("script '%s' not available in %s", script, repoName)
 	}
 
 	fmt.Printf("=== %s: %s ===\n", repoName, command)
@@ -140,70 +159,144 @@ func runScript(wsPath string, ws *workspace.Workspace, repoName, script string) 
 	return nil
 }
 
-func getScriptCommand(name string, repo workspace.RepoDef, repoDir, script string) string {
-	pkgPath := filepath.Join(repoDir, "package.json")
-	if !fileExistsRun(pkgPath) {
-		return getFallbackCommand(repoDir, script)
+func detectProjectType(repoDir string) projectType {
+	if fileExistsRun(filepath.Join(repoDir, "package.json")) {
+		return projectTypeNode
+	}
+	if fileExistsRun(filepath.Join(repoDir, "build.gradle")) || fileExistsRun(filepath.Join(repoDir, "build.gradle.kts")) {
+		return projectTypeGradle
+	}
+	if fileExistsRun(filepath.Join(repoDir, "go.mod")) {
+		return projectTypeGo
+	}
+	if fileExistsRun(filepath.Join(repoDir, "Makefile")) {
+		return projectTypeMake
+	}
+	return projectTypeUnknown
+}
+
+func buildCommand(repoDir string, projType projectType, script string, extraArgs []string) string {
+	switch projType {
+	case projectTypeNode:
+		return buildNpmCommand(repoDir, script, extraArgs)
+	case projectTypeGradle:
+		return buildGradleCommand(script, extraArgs)
+	case projectTypeGo:
+		return buildGoCommand(script, extraArgs)
+	case projectTypeMake:
+		return buildMakeCommand(script, extraArgs)
+	default:
+		return ""
+	}
+}
+
+func buildNpmCommand(repoDir, script string, extraArgs []string) string {
+	scripts := getNpmScripts(repoDir)
+	if scripts == nil {
+		return ""
 	}
 
+	if _, ok := scripts[script]; !ok {
+		return ""
+	}
+
+	cmd := fmt.Sprintf("npm run %s", script)
+	if len(extraArgs) > 0 {
+		cmd += " -- " + strings.Join(extraArgs, " ")
+	}
+	return cmd
+}
+
+func buildGradleCommand(script string, extraArgs []string) string {
+	allTasks := append([]string{script}, extraArgs...)
+	return "./gradlew " + strings.Join(allTasks, " ")
+}
+
+func buildGoCommand(script string, extraArgs []string) string {
+	switch script {
+	case "build":
+		args := "./..."
+		if len(extraArgs) > 0 {
+			args = strings.Join(extraArgs, " ")
+		}
+		return "go build " + args
+	case "test":
+		args := "./..."
+		if len(extraArgs) > 0 {
+			args = strings.Join(extraArgs, " ")
+		}
+		return "go test " + args
+	case "run":
+		if len(extraArgs) > 0 {
+			return "go run " + strings.Join(extraArgs, " ")
+		}
+		return "go run ."
+	case "fmt":
+		return "go fmt ./..."
+	case "vet":
+		return "go vet ./..."
+	default:
+		return ""
+	}
+}
+
+func buildMakeCommand(script string, extraArgs []string) string {
+	allTargets := append([]string{script}, extraArgs...)
+	return "make " + strings.Join(allTargets, " ")
+}
+
+func getNpmScripts(repoDir string) map[string]string {
+	pkgPath := filepath.Join(repoDir, "package.json")
 	data, err := os.ReadFile(pkgPath)
 	if err != nil {
-		return ""
+		return nil
 	}
 
 	var pkg struct {
 		Scripts map[string]string `json:"scripts"`
 	}
 	if err := json.Unmarshal(data, &pkg); err != nil {
-		return ""
+		return nil
 	}
-
-	if script == "test" && runWatch {
-		if _, ok := pkg.Scripts["test:watch"]; ok {
-			return "npm run test:watch"
-		}
-	}
-
-	actualScript := script
-	if script == "build" {
-		if _, ok := pkg.Scripts["build:all"]; ok {
-			if name == "AppModel" || name == "BusinessModel" {
-				actualScript = "build:all"
-			}
-		}
-	}
-
-	if _, ok := pkg.Scripts[actualScript]; ok {
-		if actualScript == "test" {
-			return "npm test"
-		}
-		return fmt.Sprintf("npm run %s", actualScript)
-	}
-
-	return ""
+	return pkg.Scripts
 }
 
-func getFallbackCommand(repoDir, script string) string {
-	switch script {
-	case "build":
-		if fileExistsRun(filepath.Join(repoDir, "build.gradle")) || fileExistsRun(filepath.Join(repoDir, "build.gradle.kts")) {
-			return "./gradlew build"
+func showAvailableScripts(repoDir string, projType projectType, repoName string) {
+	fmt.Printf("\nAvailable scripts in %s:\n", repoName)
+
+	switch projType {
+	case projectTypeNode:
+		scripts := getNpmScripts(repoDir)
+		if scripts != nil {
+			var names []string
+			for name := range scripts {
+				if !strings.HasPrefix(name, "pre") && !strings.HasPrefix(name, "post") {
+					names = append(names, name)
+				}
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				fmt.Printf("  spk run %s\n", name)
+			}
 		}
-		if fileExistsRun(filepath.Join(repoDir, "Makefile")) {
-			return "make"
-		}
-		if fileExistsRun(filepath.Join(repoDir, "go.mod")) {
-			return "go build ./..."
-		}
-	case "test":
-		if fileExistsRun(filepath.Join(repoDir, "build.gradle")) || fileExistsRun(filepath.Join(repoDir, "build.gradle.kts")) {
-			return "./gradlew test"
-		}
-		if fileExistsRun(filepath.Join(repoDir, "go.mod")) {
-			return "go test ./..."
-		}
+	case projectTypeGradle:
+		fmt.Println("  spk run build")
+		fmt.Println("  spk run test")
+		fmt.Println("  spk run clean")
+		fmt.Println("  spk run clean build")
+		fmt.Println("  (or any Gradle task)")
+	case projectTypeGo:
+		fmt.Println("  spk run build")
+		fmt.Println("  spk run test")
+		fmt.Println("  spk run fmt")
+		fmt.Println("  spk run vet")
+	case projectTypeMake:
+		fmt.Println("  spk run <target>")
+		fmt.Println("  (any Makefile target)")
+	default:
+		fmt.Println("  (no recognized project type)")
 	}
-	return ""
+	fmt.Println()
 }
 
 func fileExistsRun(path string) bool {
@@ -309,14 +402,14 @@ func buildRecursivelyRun(wsPath string, ws *workspace.Workspace, target string) 
 				continue
 			}
 
-			if err := runScript(wsPath, ws, dep, "build"); err != nil {
+			if err := runScript(wsPath, ws, dep, "build", nil); err != nil {
 				return fmt.Errorf("dependency build failed at '%s': %w", dep, err)
 			}
 			fmt.Println()
 		}
 	}
 
-	return runScript(wsPath, ws, target, "build")
+	return runScript(wsPath, ws, target, "build", nil)
 }
 
 func getDepsForRun(ws *workspace.Workspace, name string) []string {
@@ -379,32 +472,8 @@ func runShellCmd(dir, command string) error {
 	return cmd.Run()
 }
 
-func listAvailableScripts(repoDir string) []string {
-	pkgPath := filepath.Join(repoDir, "package.json")
-	data, err := os.ReadFile(pkgPath)
-	if err != nil {
-		return nil
-	}
-
-	var pkg struct {
-		Scripts map[string]string `json:"scripts"`
-	}
-	if err := json.Unmarshal(data, &pkg); err != nil {
-		return nil
-	}
-
-	var scripts []string
-	for name := range pkg.Scripts {
-		if !strings.HasPrefix(name, "pre") && !strings.HasPrefix(name, "post") {
-			scripts = append(scripts, name)
-		}
-	}
-	return scripts
-}
-
 func init() {
 	runCmd.Flags().BoolVarP(&runRecursive, "recursive", "r", false, "Build dependencies first (only for 'build')")
 	runCmd.Flags().BoolVar(&runPublished, "published", false, "Force use of published packages (no local linking)")
-	runCmd.Flags().BoolVarP(&runWatch, "watch", "w", false, "Run in watch mode (for 'test')")
 	rootCmd.AddCommand(runCmd)
 }

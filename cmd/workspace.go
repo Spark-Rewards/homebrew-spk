@@ -82,34 +82,6 @@ Examples:
 	},
 }
 
-var vscodeCmd = &cobra.Command{
-	Use:   "vscode",
-	Short: "Generate VS Code workspace file",
-	Long: `Generates or updates the .code-workspace file for this workspace.
-
-The file includes all repos registered in the workspace, allowing VS Code
-to open them as a multi-root workspace.
-
-Examples:
-  spk vscode
-  code $(spk vscode)   # open in VS Code`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		wsPath, err := workspace.Find()
-		if err != nil {
-			return err
-		}
-
-		if err := workspace.GenerateVSCodeWorkspace(wsPath); err != nil {
-			return fmt.Errorf("failed to generate VS Code workspace: %w", err)
-		}
-
-		wsFile := workspace.VSCodeWorkspacePath(wsPath)
-		fmt.Println(wsFile)
-		return nil
-	},
-}
-
 func init() {
 	rootCmd.AddCommand(workspaceCmd)
-	rootCmd.AddCommand(vscodeCmd)
 }

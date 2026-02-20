@@ -7,17 +7,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	Version = "dev"
+	Commit  = "none"
+	Date    = "unknown"
+)
+
 var rootCmd = &cobra.Command{
-	Use:   "spk",
-	Short: "spk — multi-repo workspace CLI",
+	Use:     "spk",
+	Short:   "spk — multi-repo workspace CLI",
+	Version: Version,
 	Long: `spk manages multi-repo workspaces with shared environment and smart builds.
 
 Core Commands:
   create workspace <path>   Create a new workspace
   use <repo>                Add a repo to the workspace  
   sync                      Sync repos + refresh .env (auto-login)
-  run build                 Build with local dependency linking
-  run test                  Run tests
+  run <script>              Run npm/gradle script (build, test, etc.)
 
 Quick Start:
   spk create workspace ./my-project
@@ -33,4 +39,8 @@ func Execute() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func init() {
+	rootCmd.SetVersionTemplate(fmt.Sprintf("spk %s (%s %s)\n", Version, Commit, Date))
 }

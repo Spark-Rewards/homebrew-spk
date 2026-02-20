@@ -146,7 +146,7 @@ func IsDirty(repoDir string) bool {
 	return status != ""
 }
 
-// GetDefaultBranch attempts to determine the default branch (main or master)
+// GetDefaultBranch attempts to determine the default branch (main or prod)
 func GetDefaultBranch(repoDir string) string {
 	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
 	cmd.Dir = repoDir
@@ -159,7 +159,7 @@ func GetDefaultBranch(repoDir string) string {
 		}
 	}
 
-	for _, branch := range []string{"main", "master"} {
+	for _, branch := range []string{"main", "prod"} {
 		cmd := exec.Command("git", "rev-parse", "--verify", "origin/"+branch)
 		cmd.Dir = repoDir
 		if err := cmd.Run(); err == nil {
