@@ -19,19 +19,33 @@ var (
 	runPublished bool
 )
 
-type depMapping struct {
-	api string
-	pkg string
+type consumerMapping struct {
+	consumer string
+	pkg      string
+	codegen  string // smithy codegen folder name
 }
 
-var modelToAPI = map[string]depMapping{
-	"AppModel":      {api: "AppAPI", pkg: "@spark-rewards/sra-sdk"},
-	"BusinessModel": {api: "BusinessAPI", pkg: "@spark-rewards/srw-sdk"},
+// Each model can have multiple consumers with different codegen outputs
+var modelConsumers = map[string][]consumerMapping{
+	"AppModel": {
+		{consumer: "AppAPI", pkg: "@spark-rewards/sra-sdk", codegen: "typescript-ssdk-codegen"},
+		{consumer: "MobileApp", pkg: "@spark-rewards/sra-client", codegen: "typescript-client-codegen"},
+	},
+	"BusinessModel": {
+		{consumer: "BusinessAPI", pkg: "@spark-rewards/srw-sdk", codegen: "typescript-ssdk-codegen"},
+	},
 }
 
-var apiToModel = map[string]string{
-	"AppAPI":      "AppModel",
-	"BusinessAPI": "BusinessModel",
+// Reverse lookup: consumer -> (model, mapping)
+func findModelForConsumer(consumer string) (string, *consumerMapping) {
+	for model, consumers := range modelConsumers {
+		for i := range consumers {
+			if consumers[i].consumer == consumer {
+				return model, &consumers[i]
+			}
+		}
+	}
+	return "", nil
 }
 
 type projectType int
@@ -407,8 +421,8 @@ func fileExistsRun(path string) bool {
 }
 
 func autoLinkDeps(wsPath string, ws *workspace.Workspace, name string) error {
-	modelName, isAPI := apiToModel[name]
-	if !isAPI {
+	modelName, mapping := findModelForConsumer(name)
+	if mapping == nil {
 		return nil
 	}
 
@@ -418,27 +432,26 @@ func autoLinkDeps(wsPath string, ws *workspace.Workspace, name string) error {
 	}
 
 	modelDir := filepath.Join(wsPath, modelRepo.Path)
-	apiDir := filepath.Join(wsPath, ws.Repos[name].Path)
-	mapping := modelToAPI[modelName]
+	consumerDir := filepath.Join(wsPath, ws.Repos[name].Path)
 
-	if !npm.IsBuilt(modelDir) {
+	if !npm.IsBuiltForCodegen(modelDir, mapping.codegen) {
 		fmt.Printf("Using published %s (local not built)\n", mapping.pkg)
 		return nil
 	}
 
-	if npm.IsLinked(apiDir, mapping.pkg) {
+	if npm.IsLinked(consumerDir, mapping.pkg) {
 		fmt.Printf("Using local %s (already linked)\n", modelName)
 		return nil
 	}
 
 	fmt.Printf("Linking local %s -> %s...\n", modelName, name)
-	buildDir := npm.BuildOutputDir(modelDir)
+	buildDir := npm.BuildOutputDirForCodegen(modelDir, mapping.codegen)
 
 	if err := npm.Link(buildDir); err != nil {
 		return fmt.Errorf("npm link in %s failed: %w", modelName, err)
 	}
 
-	if err := npm.LinkPackage(apiDir, mapping.pkg); err != nil {
+	if err := npm.LinkPackage(consumerDir, mapping.pkg); err != nil {
 		return fmt.Errorf("npm link %s failed: %w", mapping.pkg, err)
 	}
 
@@ -447,43 +460,49 @@ func autoLinkDeps(wsPath string, ws *workspace.Workspace, name string) error {
 }
 
 func autoLinkConsumers(wsPath string, ws *workspace.Workspace, name string) error {
-	mapping, isModel := modelToAPI[name]
+	consumers, isModel := modelConsumers[name]
 	if !isModel {
 		return nil
 	}
 
-	apiRepo, exists := ws.Repos[mapping.api]
-	if !exists {
-		return nil
-	}
-
-	apiDir := filepath.Join(wsPath, apiRepo.Path)
-	if _, err := os.Stat(apiDir); os.IsNotExist(err) {
-		return nil
-	}
-
 	modelDir := filepath.Join(wsPath, ws.Repos[name].Path)
-	buildDir := npm.BuildOutputDir(modelDir)
 
-	if !npm.IsBuilt(modelDir) {
-		return nil
+	for _, mapping := range consumers {
+		consumerRepo, exists := ws.Repos[mapping.consumer]
+		if !exists {
+			continue
+		}
+
+		consumerDir := filepath.Join(wsPath, consumerRepo.Path)
+		if _, err := os.Stat(consumerDir); os.IsNotExist(err) {
+			continue
+		}
+
+		if !npm.IsBuiltForCodegen(modelDir, mapping.codegen) {
+			continue
+		}
+
+		if npm.IsLinked(consumerDir, mapping.pkg) {
+			continue
+		}
+
+		buildDir := npm.BuildOutputDirForCodegen(modelDir, mapping.codegen)
+
+		fmt.Printf("Auto-linking to consumer %s (%s)...\n", mapping.consumer, mapping.pkg)
+
+		if err := npm.Link(buildDir); err != nil {
+			fmt.Printf("Warning: npm link failed for %s: %v\n", mapping.consumer, err)
+			continue
+		}
+
+		if err := npm.LinkPackage(consumerDir, mapping.pkg); err != nil {
+			fmt.Printf("Warning: npm link %s in %s failed: %v\n", mapping.pkg, mapping.consumer, err)
+			continue
+		}
+
+		fmt.Printf("Linked: %s now uses local %s\n", mapping.consumer, name)
 	}
 
-	if npm.IsLinked(apiDir, mapping.pkg) {
-		return nil
-	}
-
-	fmt.Printf("Auto-linking to consumer %s...\n", mapping.api)
-
-	if err := npm.Link(buildDir); err != nil {
-		return fmt.Errorf("npm link failed: %w", err)
-	}
-
-	if err := npm.LinkPackage(apiDir, mapping.pkg); err != nil {
-		return fmt.Errorf("npm link %s in %s failed: %w", mapping.pkg, mapping.api, err)
-	}
-
-	fmt.Printf("Linked: %s now uses local %s\n", mapping.api, name)
 	return nil
 }
 
@@ -525,10 +544,12 @@ func getDepsForRun(ws *workspace.Workspace, name string) []string {
 		}
 		seen[n] = true
 
-		if modelName, isAPI := apiToModel[n]; isAPI {
+		if modelName, mapping := findModelForConsumer(n); mapping != nil {
 			if _, exists := ws.Repos[modelName]; exists {
 				collect(modelName)
-				deps = append(deps, modelName)
+				if !containsRun(deps, modelName) {
+					deps = append(deps, modelName)
+				}
 			}
 		}
 

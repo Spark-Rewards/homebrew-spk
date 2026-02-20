@@ -8,7 +8,9 @@ import (
 )
 
 const (
-	SmithyBuildPath = "smithy/build/smithyprojections/smithy/source/typescript-ssdk-codegen"
+	SmithyBuildBase = "smithy/build/smithyprojections/smithy/source"
+	// Default codegen for server SDKs
+	SmithyBuildPath = SmithyBuildBase + "/typescript-ssdk-codegen"
 )
 
 // Link runs `npm link` in the given directory to register a package globally
@@ -54,9 +56,24 @@ func IsBuilt(modelDir string) bool {
 	return true
 }
 
-// BuildOutputDir returns the path to the Smithy SDK build output
+// BuildOutputDir returns the path to the default Smithy SDK build output
 func BuildOutputDir(modelDir string) string {
 	return filepath.Join(modelDir, SmithyBuildPath)
+}
+
+// BuildOutputDirForCodegen returns the path for a specific codegen type
+func BuildOutputDirForCodegen(modelDir, codegen string) string {
+	return filepath.Join(modelDir, SmithyBuildBase, codegen)
+}
+
+// IsBuiltForCodegen checks if a specific codegen output exists
+func IsBuiltForCodegen(modelDir, codegen string) bool {
+	buildDir := BuildOutputDirForCodegen(modelDir, codegen)
+	packageJSON := filepath.Join(buildDir, "package.json")
+	if _, err := os.Stat(packageJSON); err != nil {
+		return false
+	}
+	return true
 }
 
 // GetPackageName reads the package name from a package.json file
