@@ -14,10 +14,10 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:     "spark-cli",
-	Short:   "spark-cli — multi-repo workspace CLI",
+	Use:     "spk",
+	Short:   "spk — multi-repo workspace CLI",
 	Version: Version,
-	Long: `spark-cli manages multi-repo workspaces with shared environment and smart builds.
+	Long: `spk manages multi-repo workspaces with shared environment and smart builds.
 
 Core Commands:
   create workspace <path>   Create a new workspace
@@ -26,12 +26,12 @@ Core Commands:
   run <script>              Run npm/gradle script (build, test, etc.)
 
 Quick Start:
-  spark-cli create workspace ./my-project
+  spk create workspace ./my-project
   cd my-project
-  spark-cli use AppModel
-  spark-cli use AppAPI
-  spark-cli sync
-  cd AppAPI && spark-cli run build`,
+  spk use AppModel
+  spk use AppAPI
+  spk sync
+  cd AppAPI && spk run build`,
 }
 
 func Execute() {
@@ -42,6 +42,6 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.SetVersionTemplate(fmt.Sprintf("spark-cli %s (%s %s)\n", Version, Commit, Date))
+	rootCmd.SetVersionTemplate(fmt.Sprintf("spk %s (%s %s)\n", Version, Commit, Date))
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 }

@@ -14,7 +14,7 @@ var removeCmd = &cobra.Command{
 directory — it only removes the entry from the manifest.
 
 Example:
-  spark-cli remove BusinessAPI`,
+  spk remove BusinessAPI`,
 	Aliases: []string{"rm"},
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

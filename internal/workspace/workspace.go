@@ -119,7 +119,7 @@ func Find() (string, error) {
 		dir = parent
 	}
 
-	return "", fmt.Errorf("not inside a spark-cli workspace (no .spk/workspace.json found)")
+	return "", fmt.Errorf("not inside a spk workspace (no .spk/workspace.json found)")
 }
 
 // AddRepo registers a repo in the workspace manifest

@@ -29,10 +29,10 @@ When run without arguments, syncs all repos and refreshes .env.
 When a repo name is provided, only syncs that specific repo.
 
 Examples:
-  spark-cli sync                    # sync all repos + refresh .env
-  spark-cli sync BusinessAPI        # sync specific repo only
-  spark-cli sync --no-env           # skip .env refresh
-  spark-cli sync --env prod         # use prod environment for .env`,
+  spk sync                    # sync all repos + refresh .env
+  spk sync BusinessAPI        # sync specific repo only
+  spk sync --no-env           # skip .env refresh
+  spk sync --env prod         # use prod environment for .env`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsPath, err := workspace.Find()
@@ -71,11 +71,16 @@ Examples:
 	},
 }
 
-// SSM parameter suffixes to fetch — mirrors sync.sh
+// SSM parameter suffixes to fetch — mirrors sync.sh + business website (bizz-website)
 var ssmParamSuffixes = []string{
 	"customerUserPoolId",
 	"customerWebClientId",
 	"identityPoolIdCustomer",
+	"businessUserPoolId",
+	"businessWebClientId",
+	"identityPoolIdBusiness",
+	"squareClientId",
+	"cloverAppId",
 	"appConfig",
 	"googleApiKey_Android",
 	"githubToken",
@@ -86,6 +91,11 @@ var ssmToEnvKey = map[string]string{
 	"customerUserPoolId":      "USERPOOL_ID",
 	"customerWebClientId":     "WEB_CLIENT_ID",
 	"identityPoolIdCustomer":  "IDENTITY_POOL_ID",
+	"businessUserPoolId":      "BUSINESS_USERPOOL_ID",
+	"businessWebClientId":     "BUSINESS_WEB_CLIENT_ID",
+	"identityPoolIdBusiness":  "BUSINESS_IDENTITY_POOL_ID",
+	"squareClientId":          "SQUARE_CLIENT_ID",
+	"cloverAppId":             "CLOVER_APP_ID",
 	"appConfig":               "APP_CONFIG_VALUES",
 	"googleApiKey_Android":    "GOOGLE_API_KEY_ANDROID",
 	"githubToken":             "GITHUB_TOKEN",
@@ -134,15 +144,39 @@ func refreshEnv(wsPath string, ws *workspace.Workspace) error {
 		}
 	}
 
-	// Business Website (Next.js) needs NEXT_PUBLIC_* for client-side Amplify auth
-	if v, ok := envVars["USERPOOL_ID"]; ok && v != "" {
+	// Business Website (Next.js) needs NEXT_PUBLIC_* from business SSM params (bizz-website)
+	if v, ok := envVars["BUSINESS_USERPOOL_ID"]; ok && v != "" {
 		envVars["NEXT_PUBLIC_USERPOOL_ID"] = v
 	}
-	if v, ok := envVars["WEB_CLIENT_ID"]; ok && v != "" {
+	if v, ok := envVars["BUSINESS_WEB_CLIENT_ID"]; ok && v != "" {
 		envVars["NEXT_PUBLIC_WEB_CLIENT_ID"] = v
 	}
-	if v, ok := envVars["IDENTITY_POOL_ID"]; ok && v != "" {
+	if v, ok := envVars["BUSINESS_IDENTITY_POOL_ID"]; ok && v != "" {
 		envVars["NEXT_PUBLIC_IDENTITY_POOL_ID"] = v
+	}
+	// Fallback to customer params if business not set (e.g. older SSM)
+	if envVars["NEXT_PUBLIC_USERPOOL_ID"] == "" {
+		if v, ok := envVars["USERPOOL_ID"]; ok && v != "" {
+			envVars["NEXT_PUBLIC_USERPOOL_ID"] = v
+		}
+	}
+	if envVars["NEXT_PUBLIC_WEB_CLIENT_ID"] == "" {
+		if v, ok := envVars["WEB_CLIENT_ID"]; ok && v != "" {
+			envVars["NEXT_PUBLIC_WEB_CLIENT_ID"] = v
+		}
+	}
+	if envVars["NEXT_PUBLIC_IDENTITY_POOL_ID"] == "" {
+		if v, ok := envVars["IDENTITY_POOL_ID"]; ok && v != "" {
+			envVars["NEXT_PUBLIC_IDENTITY_POOL_ID"] = v
+		}
+	}
+
+	// Business Website: Square and Clover from SSM
+	if v, ok := envVars["SQUARE_CLIENT_ID"]; ok && v != "" {
+		envVars["NEXT_PUBLIC_SQUARE_CLIENT"] = v
+	}
+	if v, ok := envVars["CLOVER_APP_ID"]; ok && v != "" {
+		envVars["NEXT_PUBLIC_CLOVER_APP_ID"] = v
 	}
 
 	// Add static env vars
@@ -181,12 +215,12 @@ func getTargetBranch(ws *workspace.Workspace, repo *workspace.RepoDef, repoDir s
 func syncRepo(wsPath string, ws *workspace.Workspace, name string) error {
 	repo, ok := ws.Repos[name]
 	if !ok {
-		return fmt.Errorf("repo '%s' not found — run 'spark-cli list' to see repos", name)
+		return fmt.Errorf("repo '%s' not found — run 'spk list' to see repos", name)
 	}
 
 	repoDir := filepath.Join(wsPath, repo.Path)
 	if _, err := os.Stat(repoDir); os.IsNotExist(err) {
-		return fmt.Errorf("repo directory missing — run 'spark-cli use %s'", name)
+		return fmt.Errorf("repo directory missing — run 'spk use %s'", name)
 	}
 
 	return syncRepoInternal(wsPath, ws, name, repo, repoDir)
@@ -194,7 +228,7 @@ func syncRepo(wsPath string, ws *workspace.Workspace, name string) error {
 
 func syncAllRepos(wsPath string, ws *workspace.Workspace) error {
 	if len(ws.Repos) == 0 {
-		fmt.Println("No repos in workspace — run 'spark-cli use <repo>' to add one")
+		fmt.Println("No repos in workspace — run 'spk use <repo>' to add one")
 		return nil
 	}
 

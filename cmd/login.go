@@ -18,12 +18,12 @@ select from available SSO profiles.
 
 If no SSO profiles are configured, instructions will be shown for setup.
 
-Note: 'spark-cli sync' automatically handles login when refreshing environment,
+Note: 'spk sync' automatically handles login when refreshing environment,
 so you typically don't need to run this separately.
 
 Examples:
-  spark-cli login                  # select from available profiles
-  spark-cli login --profile dev    # login with specific profile`,
+  spk login                  # select from available profiles
+  spk login --profile dev    # login with specific profile`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := aws.CheckCLI(); err != nil {
 			return err

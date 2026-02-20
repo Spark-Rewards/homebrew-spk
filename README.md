@@ -1,27 +1,25 @@
-# spark-cli
+# spk
 
 Multi-repo workspace CLI for Spark Rewards development.
 
-**New to spark-cli?** See **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** for a guide (purpose, install, and how to use it).
-
-**Release version:** The next release version is in **[VERSION](VERSION)**. CI uses it when tagging and releasing. To cut a minor or major release (e.g. `0.2.0`), update `VERSION` before pushing to `main`; otherwise each push releases that version and CI bumps the patch for next time.
+**New to spk?** See **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** for a guide (purpose, install, and how to use it).
 
 ## Install
 
 ```bash
-brew tap Spark-Rewards/spark-cli
-brew install spark-cli
+brew tap Spark-Rewards/spk
+brew install spk
 ```
 
 ## Usage
 
 ```bash
-spark-cli create workspace ~/SparkRewards
+spk create workspace ~/SparkRewards
 cd ~/SparkRewards
-spark-cli use AppModel
-spark-cli use AppAPI
-spark-cli sync
-cd AppAPI && spark-cli run build
+spk use AppModel
+spk use AppAPI
+spk sync
+cd AppAPI && spk run build
 ```
 
-Run `spark-cli --help` for all commands.
+Run `spk --help` for all commands.
