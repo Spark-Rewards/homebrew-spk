@@ -1,4 +1,4 @@
-module github.com/Spark-Rewards/homebrew-spk
+module github.com/Spark-Rewards/homebrew-spark-cli
 
 go 1.25.0
 

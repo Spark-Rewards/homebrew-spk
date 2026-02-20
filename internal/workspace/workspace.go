@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/Spark-Rewards/homebrew-spk/internal/config"
+	"github.com/Spark-Rewards/homebrew-spark-cli/internal/config"
 )
 
 const ManifestFile = "workspace.json"

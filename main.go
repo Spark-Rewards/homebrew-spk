@@ -1,6 +1,6 @@
 package main
 
-import "github.com/Spark-Rewards/homebrew-spk/cmd"
+import "github.com/Spark-Rewards/homebrew-spark-cli/cmd"
 
 func main() {
 	cmd.Execute()

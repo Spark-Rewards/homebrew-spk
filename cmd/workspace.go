@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Spark-Rewards/homebrew-spk/internal/git"
-	"github.com/Spark-Rewards/homebrew-spk/internal/workspace"
+	"github.com/Spark-Rewards/homebrew-spark-cli/internal/git"
+	"github.com/Spark-Rewards/homebrew-spark-cli/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
