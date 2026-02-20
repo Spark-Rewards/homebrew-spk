@@ -5,21 +5,21 @@
 class SparkCli < Formula
   desc "Workspace CLI for multi-repo development"
   homepage "https://github.com/Spark-Rewards/homebrew-spark-cli"
-  version "0.2.10"
+  version "0.2.10-202602202225"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/Spark-Rewards/homebrew-spark-cli/releases/download/v0.2.10/spark-cli_darwin_amd64.tar.gz"
-      sha256 "1841707f19868270b656f449011e42ed737956b1742925158649f4145baacedd"
+      url "https://github.com/Spark-Rewards/homebrew-spark-cli/releases/download/v0.2.10-202602202225/spark-cli_darwin_amd64.tar.gz"
+      sha256 "30991a8f469651a9b56b22fbdf988f42c984dde32e545f49804ec4d903c75975"
 
       def install
         bin.install "spark-cli"
       end
     end
     if Hardware::CPU.arm?
-      url "https://github.com/Spark-Rewards/homebrew-spark-cli/releases/download/v0.2.10/spark-cli_darwin_arm64.tar.gz"
-      sha256 "3ae56b79b6a4962600758359f062534eeffca8e32a06515933a6c4bd76b33d4a"
+      url "https://github.com/Spark-Rewards/homebrew-spark-cli/releases/download/v0.2.10-202602202225/spark-cli_darwin_arm64.tar.gz"
+      sha256 "564c93ff58fea520cfa0260b136c5ce34a93d734d0b005e7c1749abb02810110"
 
       def install
         bin.install "spark-cli"
@@ -29,15 +29,15 @@ class SparkCli < Formula
 
   on_linux do
     if Hardware::CPU.intel? && Hardware::CPU.is_64_bit?
-      url "https://github.com/Spark-Rewards/homebrew-spark-cli/releases/download/v0.2.10/spark-cli_linux_amd64.tar.gz"
-      sha256 "fa5d4c062a0f96bc6fa235b24da517a59bb848061efceaa4474a859c0567612a"
+      url "https://github.com/Spark-Rewards/homebrew-spark-cli/releases/download/v0.2.10-202602202225/spark-cli_linux_amd64.tar.gz"
+      sha256 "0b8a06253e1796207fbe712ad6bb0374862b874b6ec92d9fe16e8d5e8014bdd0"
       def install
         bin.install "spark-cli"
       end
     end
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/Spark-Rewards/homebrew-spark-cli/releases/download/v0.2.10/spark-cli_linux_arm64.tar.gz"
-      sha256 "ae263a1f30653d140dd72cebf4316c14bd41a05786a55a2f0446bb687b17bb71"
+      url "https://github.com/Spark-Rewards/homebrew-spark-cli/releases/download/v0.2.10-202602202225/spark-cli_linux_arm64.tar.gz"
+      sha256 "1cdde752c2b7df29226c3706d02358e35a108446ae22c9c2f22ef4144f6aa346"
       def install
         bin.install "spark-cli"
       end
