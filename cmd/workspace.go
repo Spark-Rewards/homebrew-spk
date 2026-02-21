@@ -253,7 +253,7 @@ func runWorkspaceConfigureProfile(profileName string) error {
 			fmt.Println("✓ Login successful")
 		}
 	}
-	fmt.Println("Use 'spark-cli sync' with this profile.")
+	fmt.Println("Use 'spark-cli workspace sync' with this profile.")
 	return nil
 }
 

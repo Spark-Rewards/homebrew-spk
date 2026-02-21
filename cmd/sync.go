@@ -17,24 +17,17 @@ import (
 var (
 	syncBranch   string
 	syncNoRebase bool
-	syncNoEnv    bool
 	syncEnv      string
 )
 
 var syncCmd = &cobra.Command{
 	Use:   "sync [repo-name]",
-	Short: "Sync repos and refresh .env (--env, --branch, --no-env | -h)",
-	Long: `Syncs all workspace repos (git fetch + rebase) and refreshes the .env file
-with fresh credentials from AWS SSM. Automatically logs in to AWS if needed.
+	Short: "Sync repos (git fetch+rebase); use --env to refresh workspace .env",
+	Long: `Syncs workspace repos. Pass --env (e.g. beta, prod) to refresh .env from SSM.
 
-When run without arguments, syncs all repos and refreshes .env.
-When a repo name is provided, only syncs that specific repo.
-
-Examples:
-  spark-cli sync                    # sync all repos + refresh .env
-  spark-cli sync BusinessAPI        # sync specific repo only
-  spark-cli sync --no-env           # skip .env refresh
-  spark-cli sync --env prod         # use prod environment for .env`,
+  spark-cli workspace sync               # sync all repos
+  spark-cli workspace sync --env beta    # sync and refresh .env from beta
+  spark-cli workspace sync BusinessAPI   # sync one repo`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsPath, err := workspace.Find()
@@ -48,14 +41,16 @@ Examples:
 		}
 
 		if len(args) == 1 {
-			return syncRepo(wsPath, ws, args[0])
+			if err := syncRepo(wsPath, ws, args[0]); err != nil {
+				return err
+			}
+		} else {
+			if err := syncAllRepos(wsPath, ws); err != nil {
+				return err
+			}
 		}
 
-		if err := syncAllRepos(wsPath, ws); err != nil {
-			return err
-		}
-
-		if !syncNoEnv {
+		if syncEnv != "" {
 			if err := refreshEnvQuiet(wsPath, ws); err != nil {
 				fmt.Printf("Warning: failed to refresh .env: %v\n", err)
 			} else {
@@ -63,9 +58,7 @@ Examples:
 			}
 		}
 
-		// Silently update VS Code workspace
 		workspace.GenerateVSCodeWorkspace(wsPath)
-
 		return nil
 	},
 }
@@ -412,7 +405,6 @@ func syncRepoInternal(wsPath string, ws *workspace.Workspace, name string, repo 
 func init() {
 	syncCmd.Flags().StringVar(&syncBranch, "branch", "", "Target branch (default: main)")
 	syncCmd.Flags().BoolVar(&syncNoRebase, "no-rebase", false, "Use git pull instead of rebase")
-	syncCmd.Flags().BoolVar(&syncNoEnv, "no-env", false, "Skip .env refresh")
-	syncCmd.Flags().StringVar(&syncEnv, "env", "", "SSM environment (beta/prod)")
-	rootCmd.AddCommand(syncCmd)
+	syncCmd.Flags().StringVar(&syncEnv, "env", "", "Refresh .env from this SSM environment (e.g. beta, prod)")
+	workspaceCmd.AddCommand(syncCmd)
 }
