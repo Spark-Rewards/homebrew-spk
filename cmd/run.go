@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Spark-Rewards/homebrew-spark-cli/internal/npm"
+	"github.com/Spark-Rewards/homebrew-spark-cli/internal/spkconfig"
 	"github.com/Spark-Rewards/homebrew-spark-cli/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -25,28 +26,49 @@ type consumerMapping struct {
 	codegen  string // smithy codegen folder name
 }
 
-// Each model can have multiple consumers with different codegen outputs
-var modelConsumers = map[string][]consumerMapping{
-	"AppModel": {
-		{consumer: "AppAPI", pkg: "@spark-rewards/sra-sdk", codegen: "typescript-ssdk-codegen"},
-		{consumer: "MobileApp", pkg: "@spark-rewards/sra-client", codegen: "typescript-client-codegen"},
-	},
-	"BusinessModel": {
-		{consumer: "BusinessAPI", pkg: "@spark-rewards/srw-sdk", codegen: "typescript-ssdk-codegen"},
-		{consumer: "BusinessWebsite", pkg: "@spark-rewards/srw-client", codegen: "typescript-client-codegen"},
-	},
+// modelDep is one model dependency (from spk.config.json "consumes" in a consumer repo).
+type modelDep struct {
+	model   string
+	pkg     string
+	codegen string
 }
 
-// Reverse lookup: consumer -> (model, mapping)
-func findModelForConsumer(consumer string) (string, *consumerMapping) {
-	for model, consumers := range modelConsumers {
-		for i := range consumers {
-			if consumers[i].consumer == consumer {
-				return model, &consumers[i]
-			}
+// buildConsumerDependenciesFromWorkspace reads each repo's spk.config.json (consumes) and returns consumer -> deps.
+func buildConsumerDependenciesFromWorkspace(wsPath string, ws *workspace.Workspace) map[string][]modelDep {
+	out := make(map[string][]modelDep)
+	for name, repo := range ws.Repos {
+		repoDir := filepath.Join(wsPath, repo.Path)
+		cfg, err := spkconfig.Load(repoDir)
+		if err != nil || cfg == nil || len(cfg.Consumes) == 0 {
+			continue
+		}
+		for _, e := range cfg.Consumes {
+			out[name] = append(out[name], modelDep{model: e.Model, pkg: e.Package, codegen: e.Codegen})
 		}
 	}
-	return "", nil
+	return out
+}
+
+// buildModelConsumersFromWorkspace inverts consumer deps to model -> consumers (for linking after model build).
+func buildModelConsumersFromWorkspace(wsPath string, ws *workspace.Workspace) map[string][]consumerMapping {
+	consumerDeps := buildConsumerDependenciesFromWorkspace(wsPath, ws)
+	out := make(map[string][]consumerMapping)
+	for consumer, deps := range consumerDeps {
+		for _, d := range deps {
+			out[d.model] = append(out[d.model], consumerMapping{consumer: consumer, pkg: d.pkg, codegen: d.codegen})
+		}
+	}
+	return out
+}
+
+// findModelForConsumer returns the model and mapping for a consumer from its spk.config.json (consumes).
+func findModelForConsumer(wsPath string, ws *workspace.Workspace, consumer string) (string, *consumerMapping) {
+	deps := buildConsumerDependenciesFromWorkspace(wsPath, ws)[consumer]
+	if len(deps) == 0 {
+		return "", nil
+	}
+	d := deps[0]
+	return d.model, &consumerMapping{consumer: consumer, pkg: d.pkg, codegen: d.codegen}
 }
 
 type projectType int
@@ -61,7 +83,7 @@ const (
 
 var runCmd = &cobra.Command{
 	Use:   "run [script] [args...]",
-	Short: "Run a script in the current repo",
+	Short: "Run a script e.g. build, dev (-r, --published | -h)",
 	Long:  getDynamicRunHelp(),
 	Args:  cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -422,7 +444,7 @@ func fileExistsRun(path string) bool {
 }
 
 func autoLinkDeps(wsPath string, ws *workspace.Workspace, name string) error {
-	modelName, mapping := findModelForConsumer(name)
+	modelName, mapping := findModelForConsumer(wsPath, ws, name)
 	if mapping == nil {
 		return nil
 	}
@@ -454,6 +476,7 @@ func autoLinkDeps(wsPath string, ws *workspace.Workspace, name string) error {
 }
 
 func autoLinkConsumers(wsPath string, ws *workspace.Workspace, name string) error {
+	modelConsumers := buildModelConsumersFromWorkspace(wsPath, ws)
 	consumers, isModel := modelConsumers[name]
 	if !isModel {
 		return nil
@@ -494,7 +517,7 @@ func autoLinkConsumers(wsPath string, ws *workspace.Workspace, name string) erro
 }
 
 func buildRecursivelyRun(wsPath string, ws *workspace.Workspace, target string) error {
-	deps := getDepsForRun(ws, target)
+	deps := getDepsForRun(wsPath, ws, target)
 
 	if len(deps) > 0 {
 		fmt.Printf("Building dependencies first: %v\n\n", deps)
@@ -520,7 +543,7 @@ func buildRecursivelyRun(wsPath string, ws *workspace.Workspace, target string) 
 	return runScript(wsPath, ws, target, "build", nil)
 }
 
-func getDepsForRun(ws *workspace.Workspace, name string) []string {
+func getDepsForRun(wsPath string, ws *workspace.Workspace, name string) []string {
 	var deps []string
 	seen := make(map[string]bool)
 
@@ -531,7 +554,7 @@ func getDepsForRun(ws *workspace.Workspace, name string) []string {
 		}
 		seen[n] = true
 
-		if modelName, mapping := findModelForConsumer(n); mapping != nil {
+		if modelName, mapping := findModelForConsumer(wsPath, ws, n); mapping != nil {
 			if _, exists := ws.Repos[modelName]; exists {
 				collect(modelName)
 				if !containsRun(deps, modelName) {

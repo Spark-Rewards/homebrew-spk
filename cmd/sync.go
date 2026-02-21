@@ -21,7 +21,7 @@ var (
 
 var syncCmd = &cobra.Command{
 	Use:   "sync [repo-name]",
-	Short: "Sync repos and refresh environment",
+	Short: "Sync repos and refresh .env (--env, --branch, --no-env | -h)",
 	Long: `Syncs all workspace repos (git fetch + rebase) and refreshes the .env file
 with fresh credentials from AWS SSM. Automatically logs in to AWS if needed.
 

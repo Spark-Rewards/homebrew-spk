@@ -20,7 +20,7 @@ const defaultGitHubOrg = "Spark-Rewards"
 
 var useCmd = &cobra.Command{
 	Use:   "use <repo>",
-	Short: "Clone a repo into the current workspace",
+	Short: "Clone a repo into workspace (--build, --deps | -h)",
 	Long: `Clones a GitHub repository into the current workspace and registers it
 in the workspace manifest.
 

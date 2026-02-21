@@ -11,6 +11,19 @@ import (
 	"strings"
 )
 
+// SSOAccount holds a known AWS account for SSO setup reference
+type SSOAccount struct {
+	Name    string
+	Account string
+}
+
+// KnownSSOAccounts are Spark Rewards AWS accounts (for setup reference)
+var KnownSSOAccounts = []SSOAccount{
+	{Name: "beta", Account: "050451385382"},
+	{Name: "prod", Account: "396608803858"},
+	{Name: "central", Account: "417975668372"},
+}
+
 // SSOLogin runs `aws sso login` with the given profile
 func SSOLogin(profile string) error {
 	args := []string{"sso", "login"}
@@ -139,40 +152,66 @@ func PromptProfileSelection() (string, error) {
 	return profiles[idx-1], nil
 }
 
-// ShowSSOSetupInstructions prints instructions for setting up SSO
+// PrintSSOAccountReference prints the known AWS account IDs (for identifying accounts in the wizard list)
+func PrintSSOAccountReference() {
+	fmt.Println("  Account reference (you'll pick from a list in the wizard; use these to identify which is which):")
+	fmt.Println()
+	for _, a := range KnownSSOAccounts {
+		fmt.Printf("    %-8s %s\n", a.Name+":", a.Account)
+	}
+	fmt.Println()
+}
+
+// RunConfigureSSO runs `aws configure sso` interactively (wrapper for first-time or new profile setup)
+func RunConfigureSSO() error {
+	cmd := exec.Command("aws", "configure", "sso")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
+}
+
+// ShowSSOSetupInstructions prints instructions matching the real aws configure sso wizard flow
 func ShowSSOSetupInstructions() {
 	fmt.Println()
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("  AWS SSO Setup Required")
+	fmt.Println("  AWS SSO Setup (aws configure sso)")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
+	fmt.Println("  The wizard will prompt in this order:")
+	fmt.Println()
+	fmt.Println("    1. SSO session name (Recommended):  e.g. sparkrewards")
+	fmt.Println("    2. SSO start URL [None]:           e.g. https://d-9067d5d83d.awsapps.com/start")
+	fmt.Println("    3. SSO region [None]:              e.g. us-east-1")
+	fmt.Println("    4. SSO registration scopes [None]: sso:account:access  (or press Enter)")
+	fmt.Println("    5. Browser opens to sign in")
+	fmt.Println("    6. Select AWS account from list    (see account IDs below to identify beta/prod/central)")
+	fmt.Println("    7. Select IAM role from list")
+	fmt.Println("    8. Default client Region [None]:   e.g. us-east-1")
+	fmt.Println("    9. CLI default output format [None]: json")
+	fmt.Println("   10. CLI profile name [...]:          e.g. beta/prod/central")
+	fmt.Println()
+	PrintSSOAccountReference()
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
+}
+
+// ShowSSOSetupInstructionsNoRun prints the setup blurb and account reference only (no exec)
+func ShowSSOSetupInstructionsNoRun() {
 	fmt.Println()
 	fmt.Println("  No SSO profiles found in ~/.aws/config")
 	fmt.Println()
-	fmt.Println("  To set up AWS SSO, run:")
+	PrintSSOAccountReference()
+	fmt.Println("  Run 'spark-cli workspace configure sso' to set up a profile (runs aws configure sso),")
+	fmt.Println("  or run 'aws configure sso' yourself. Then: spark-cli workspace configure --profile <name>")
 	fmt.Println()
-	fmt.Println("    aws configure sso")
+}
+
+// ShowSSOSetupInstructionsShort prints account reference + short blurb for adding a profile
+func ShowSSOSetupInstructionsShort() {
 	fmt.Println()
-	fmt.Println("  You'll need the following information from your AWS admin:")
-	fmt.Println()
-	fmt.Println("    • SSO Start URL    (e.g., https://mycompany.awsapps.com/start)")
-	fmt.Println("    • SSO Region       (e.g., us-east-1)")
-	fmt.Println("    • AWS Account ID   (12-digit number)")
-	fmt.Println("    • IAM Role Name    (e.g., AdministratorAccess, DeveloperAccess)")
-	fmt.Println()
-	fmt.Println("  Example session:")
-	fmt.Println()
-	fmt.Println("    $ aws configure sso")
-	fmt.Println("    SSO session name (Recommended): sparkrewards")
-	fmt.Println("    SSO start URL [None]: https://sparkrewards.awsapps.com/start")
-	fmt.Println("    SSO region [None]: us-east-1")
-	fmt.Println("    (Browser opens for authentication)")
-	fmt.Println("    ...")
-	fmt.Println("    CLI default client Region [None]: us-east-1")
-	fmt.Println("    CLI default output format [None]: json")
-	fmt.Println("    CLI profile name [...]: sparkrewards-dev")
-	fmt.Println()
-	fmt.Println("  After setup, run 'spark-cli login' again.")
-	fmt.Println()
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("  To add another profile: spark-cli workspace configure sso")
+	PrintSSOAccountReference()
+	fmt.Println("  Then: spark-cli workspace configure --profile <profile-name>")
 	fmt.Println()
 }

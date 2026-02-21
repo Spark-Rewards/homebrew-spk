@@ -18,20 +18,7 @@ var rootCmd = &cobra.Command{
 	Short:   "spark-cli — multi-repo workspace CLI",
 	Version: Version,
 	Long: `spark-cli manages multi-repo workspaces with shared environment and smart builds.
-
-Core Commands:
-  create workspace <path>   Create a new workspace
-  use <repo>                Add a repo to the workspace
-  sync                      Sync repos + refresh .env (auto-login)
-  run <script>              Run npm/gradle script (build, test, etc.)
-
-Quick Start:
-  spark-cli create workspace ./my-project
-  cd my-project
-  spark-cli use AppModel
-  spark-cli use AppAPI
-  spark-cli sync
-  cd AppAPI && spark-cli run build`,
+`,
 }
 
 func Execute() {
