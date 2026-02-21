@@ -1,6 +1,6 @@
 # Getting started with spark-cli (super simple guide)
 
-This doc explains **what spark-cli is** and **how to use it** in plain terms. No prior multi-repo or CLI experience required.
+This doc explains **what spark-cli is** and **how to use it**.
 
 ---
 
