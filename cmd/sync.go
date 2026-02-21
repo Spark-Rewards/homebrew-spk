@@ -350,7 +350,7 @@ func syncAllRepos(wsPath string, ws *workspace.Workspace) error {
 
 		// Not cloned
 		if _, err := os.Stat(repoDir); os.IsNotExist(err) {
-			fmt.Printf("[skip] %s — not cloned\n", name)
+			fmt.Printf("[skipped-rebase] %s — not cloned\n", name)
 			continue
 		}
 
@@ -360,7 +360,7 @@ func syncAllRepos(wsPath string, ws *workspace.Workspace) error {
 			if err != nil || status == "" {
 				status, _ = git.Status(repoDir)
 			}
-			fmt.Printf("[skip] %s:\n", name)
+			fmt.Printf("[skipped-rebase] %s:\n", name)
 			for _, line := range strings.Split(status, "\n") {
 				if line != "" {
 					fmt.Println("       " + line)
@@ -373,9 +373,9 @@ func syncAllRepos(wsPath string, ws *workspace.Workspace) error {
 
 		// Clean — fetch and rebase
 		if err := syncRepoInternal(wsPath, ws, name, repo, repoDir); err != nil {
-			fmt.Printf("[fail] %s — %v\n", name, err)
+			fmt.Printf("[fail]           %s — %v\n", name, err)
 		} else {
-			fmt.Printf("[ok]   %s\n", name)
+			fmt.Printf("[up-to-date]     %s\n", name)
 			synced++
 		}
 	}
