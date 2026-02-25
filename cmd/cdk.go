@@ -76,7 +76,7 @@ func findCDKRepoDir(wsPath string, ws *workspace.Workspace) (string, error) {
 	for _, repo := range ws.Repos {
 		repoDir := filepath.Join(wsPath, repo.Path)
 		absRepo, _ := filepath.Abs(repoDir)
-		if cwd == absRepo || isSubdirRun(absRepo, cwd) {
+		if cwd == absRepo || isSubdir(absRepo, cwd) {
 			if hasCDK(repoDir) {
 				return repoDir, nil
 			}

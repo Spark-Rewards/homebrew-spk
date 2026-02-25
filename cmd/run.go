@@ -9,67 +9,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Spark-Rewards/homebrew-spark-cli/internal/npm"
-	"github.com/Spark-Rewards/homebrew-spark-cli/internal/spkconfig"
 	"github.com/Spark-Rewards/homebrew-spark-cli/internal/workspace"
 	"github.com/spf13/cobra"
 )
-
-var (
-	runRecursive bool
-	runPublished bool
-)
-
-type consumerMapping struct {
-	consumer string
-	pkg      string
-	codegen  string // smithy codegen folder name
-}
-
-// modelDep is one model dependency (from spk.config.json "consumes" in a consumer repo).
-type modelDep struct {
-	model   string
-	pkg     string
-	codegen string
-}
-
-// buildConsumerDependenciesFromWorkspace reads each repo's spk.config.json (consumes) and returns consumer -> deps.
-func buildConsumerDependenciesFromWorkspace(wsPath string, ws *workspace.Workspace) map[string][]modelDep {
-	out := make(map[string][]modelDep)
-	for name, repo := range ws.Repos {
-		repoDir := filepath.Join(wsPath, repo.Path)
-		cfg, err := spkconfig.Load(repoDir)
-		if err != nil || cfg == nil || len(cfg.Consumes) == 0 {
-			continue
-		}
-		for _, e := range cfg.Consumes {
-			out[name] = append(out[name], modelDep{model: e.Model, pkg: e.Package, codegen: e.Codegen})
-		}
-	}
-	return out
-}
-
-// buildModelConsumersFromWorkspace inverts consumer deps to model -> consumers (for linking after model build).
-func buildModelConsumersFromWorkspace(wsPath string, ws *workspace.Workspace) map[string][]consumerMapping {
-	consumerDeps := buildConsumerDependenciesFromWorkspace(wsPath, ws)
-	out := make(map[string][]consumerMapping)
-	for consumer, deps := range consumerDeps {
-		for _, d := range deps {
-			out[d.model] = append(out[d.model], consumerMapping{consumer: consumer, pkg: d.pkg, codegen: d.codegen})
-		}
-	}
-	return out
-}
-
-// findModelForConsumer returns the model and mapping for a consumer from its spk.config.json (consumes).
-func findModelForConsumer(wsPath string, ws *workspace.Workspace, consumer string) (string, *consumerMapping) {
-	deps := buildConsumerDependenciesFromWorkspace(wsPath, ws)[consumer]
-	if len(deps) == 0 {
-		return "", nil
-	}
-	d := deps[0]
-	return d.model, &consumerMapping{consumer: consumer, pkg: d.pkg, codegen: d.codegen}
-}
 
 type projectType int
 
@@ -82,10 +24,33 @@ const (
 )
 
 var runCmd = &cobra.Command{
-	Use:   "run [script] [args...]",
-	Short: "Run a script e.g. build, dev (-r, --published | -h)",
-	Long:  getDynamicRunHelp(),
-	Args:  cobra.ArbitraryArgs,
+	Use:   "run [command] [args...]",
+	Short: "Run any command with workspace environment injected",
+	Long: `Wrapper that injects workspace environment variables into any command.
+
+If inside a repo directory, auto-detects project type and maps scripts:
+  Node/npm:    spark-cli run <script>  →  npm run <script>
+  Gradle:      spark-cli run <task>    →  ./gradlew <task>
+  Go:          spark-cli run build     →  go build ./...
+  Make:        spark-cli run <target>  →  make <target>
+
+Or pass any arbitrary command:
+  spark-cli run -- aws s3 ls
+  spark-cli run -- npm install
+  spark-cli run -- echo $GITHUB_TOKEN
+
+Workspace env includes:
+  - .env file from workspace root
+  - workspace.json env overrides
+  - GITHUB_TOKEN (auto-resolved from gh auth if not set)
+
+Examples:
+  spark-cli run              # list available scripts for current repo
+  spark-cli run build        # npm run build / ./gradlew build
+  spark-cli run test         # npm test / ./gradlew test
+  spark-cli run -- ls -la    # run arbitrary command with workspace env`,
+	Args:                  cobra.ArbitraryArgs,
+	DisableFlagParsing:    false,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsPath, err := workspace.Find()
 		if err != nil {
@@ -97,143 +62,39 @@ var runCmd = &cobra.Command{
 			return err
 		}
 
-		repoName, err := detectCurrentRepoForRun(wsPath, ws)
-		if err != nil {
-			return fmt.Errorf("must be run from inside a repo directory")
-		}
+		// Build workspace env
+		wsEnv := buildWorkspaceEnv(wsPath, ws)
 
+		// If no args, try to show available scripts for current repo
 		if len(args) == 0 {
-			repoDir := filepath.Join(wsPath, ws.Repos[repoName].Path)
-			projType := detectProjectType(repoDir)
-			showAvailableScripts(repoDir, projType, repoName)
+			repoName, repoDir := detectCurrentRepo(wsPath, ws)
+			if repoName != "" {
+				projType := detectProjectType(repoDir)
+				showAvailableScripts(repoDir, projType, repoName)
+			} else {
+				fmt.Println("Run any command with workspace env:")
+				fmt.Println("  spark-cli run -- <command>")
+				fmt.Println("  spark-cli run <script>  (inside a repo)")
+			}
 			return nil
 		}
 
-		script := args[0]
-		extraArgs := args[1:]
-
-		if script == "build" && runRecursive {
-			return buildRecursivelyRun(wsPath, ws, repoName)
+		// Check if inside a repo — if so, map to project-specific commands
+		repoName, _ := detectCurrentRepo(wsPath, ws)
+		if repoName != "" {
+			return runRepoScript(wsPath, ws, repoName, args[0], args[1:], wsEnv)
 		}
 
-		return runScript(wsPath, ws, repoName, script, extraArgs)
+		// Not in a repo — run as raw command
+		return runRawCommand(wsPath, args, wsEnv)
 	},
 }
 
-func getDynamicRunHelp() string {
-	base := `Wrapper for running scripts in the current repo. Automatically detects
-the project type and runs the appropriate command.
-
-For Node/npm projects:     spark-cli run <script>  ->  npm run <script>
-For Gradle projects:       spark-cli run <task>    ->  ./gradlew <task>
-For Go projects:           spark-cli run build     ->  go build ./...
-For Make projects:         spark-cli run <target>  ->  make <target>
-
-For 'build', automatically links locally-built dependencies (like Amazon's Brazil Build).
-Use --recursive (-r) with 'build' to build dependencies first.
-
-Examples:
-  spark-cli run                    # list available scripts
-  spark-cli run build              # npm run build / ./gradlew build
-  spark-cli run build -r           # build dependencies first, then this repo
-  spark-cli run test               # npm test / ./gradlew test
-  spark-cli run start              # npm run start
-  spark-cli run lint               # npm run lint
-  spark-cli run clean build        # ./gradlew clean build (Gradle)`
-
-	wsPath, err := workspace.Find()
-	if err != nil {
-		return base
-	}
-
-	ws, err := workspace.Load(wsPath)
-	if err != nil {
-		return base
-	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		return base
-	}
-
-	var repoName string
-	var repoDir string
-	for name, repo := range ws.Repos {
-		rd := filepath.Join(wsPath, repo.Path)
-		absRepoDir, _ := filepath.Abs(rd)
-		if cwd == absRepoDir || (len(cwd) > len(absRepoDir) && strings.HasPrefix(cwd, absRepoDir+"/")) {
-			repoName = name
-			repoDir = rd
-			break
-		}
-	}
-
-	if repoName == "" {
-		return base
-	}
-
-	scripts := getNpmScripts(repoDir)
-	if scripts == nil || len(scripts) == 0 {
-		return base
-	}
-
-	var names []string
-	for name := range scripts {
-		if !strings.HasPrefix(name, "pre") && !strings.HasPrefix(name, "post") {
-			names = append(names, name)
-		}
-	}
-	sort.Strings(names)
-
-	base += fmt.Sprintf("\n\nAvailable scripts in %s:", repoName)
-	for _, name := range names {
-		base += fmt.Sprintf("\n  spark-cli run %s", name)
-	}
-
-	return base
-}
-
-func detectCurrentRepoForRun(wsPath string, ws *workspace.Workspace) (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("could not get current directory: %w", err)
-	}
-
-	for name, repo := range ws.Repos {
-		repoDir := filepath.Join(wsPath, repo.Path)
-		absRepoDir, _ := filepath.Abs(repoDir)
-
-		if cwd == absRepoDir || isSubdirRun(absRepoDir, cwd) {
-			return name, nil
-		}
-	}
-
-	return "", fmt.Errorf("not inside a repo directory")
-}
-
-func isSubdirRun(parent, child string) bool {
-	rel, err := filepath.Rel(parent, child)
-	if err != nil {
-		return false
-	}
-	return !filepath.IsAbs(rel) && len(rel) > 0 && rel[0] != '.'
-}
-
-func runScript(wsPath string, ws *workspace.Workspace, repoName, script string, extraArgs []string) error {
-	repo, ok := ws.Repos[repoName]
-	if !ok {
-		return fmt.Errorf("repo '%s' not found in workspace", repoName)
-	}
-
-	repoDir := filepath.Join(wsPath, repo.Path)
-	if _, err := os.Stat(repoDir); os.IsNotExist(err) {
-		return fmt.Errorf("repo directory %s does not exist", repoDir)
-	}
-
-	// Build env: workspace .env file + workspace.json env + auto-resolved GITHUB_TOKEN
+// buildWorkspaceEnv assembles env vars from .env, workspace.json, and gh auth
+func buildWorkspaceEnv(wsPath string, ws *workspace.Workspace) map[string]string {
 	wsEnv := make(map[string]string)
 
-	// Load .env file from workspace root (written by `spark-cli sync`)
+	// Load .env file from workspace root
 	dotEnv, _ := workspace.ReadGlobalEnv(wsPath)
 	for k, v := range dotEnv {
 		wsEnv[k] = v
@@ -244,71 +105,105 @@ func runScript(wsPath string, ws *workspace.Workspace, repoName, script string, 
 		wsEnv[k] = v
 	}
 
-	// Fallback: if still no GITHUB_TOKEN, try gh auth
+	// Auto-resolve GITHUB_TOKEN if not set
 	wsEnv = ensureGitHubToken(wsEnv)
+
+	return wsEnv
+}
+
+func runRepoScript(wsPath string, ws *workspace.Workspace, repoName, script string, extraArgs []string, wsEnv map[string]string) error {
+	repo, ok := ws.Repos[repoName]
+	if !ok {
+		return fmt.Errorf("repo '%s' not found in workspace", repoName)
+	}
+
+	repoDir := filepath.Join(wsPath, repo.Path)
+	if _, err := os.Stat(repoDir); os.IsNotExist(err) {
+		return fmt.Errorf("repo directory %s does not exist", repoDir)
+	}
 
 	projType := detectProjectType(repoDir)
 
-	// Auto-install node_modules if missing or broken for Node projects
+	// Auto-install node_modules if missing for Node projects
 	if projType == projectTypeNode {
-		nodeModules := filepath.Join(repoDir, "node_modules")
-		needsInstall := false
-
-		if _, err := os.Stat(nodeModules); os.IsNotExist(err) {
-			fmt.Printf("node_modules missing — running npm install...\n")
-			needsInstall = true
-		} else if _, err := os.Stat(filepath.Join(nodeModules, ".package-lock.json")); os.IsNotExist(err) {
-			// .package-lock.json is written at the end of a successful install.
-			// If it's missing, the previous install was likely incomplete.
-			fmt.Printf("node_modules incomplete — running npm install...\n")
-			needsInstall = true
-		}
-
-		if needsInstall {
-			if err := runShellCmdWithEnv(repoDir, "npm install", wsEnv); err != nil {
-				return fmt.Errorf("npm install failed: %w", err)
-			}
-			fmt.Println()
+		if err := ensureNodeModules(repoDir, wsEnv); err != nil {
+			return err
 		}
 	}
 
-	if !runPublished {
-		if err := autoLinkDeps(wsPath, ws, repoName); err != nil {
-			fmt.Printf("Warning: dependency linking issue: %v\n", err)
-		}
-	}
 	command := buildCommand(repoDir, projType, script, extraArgs)
-
 	if command == "" {
 		showAvailableScripts(repoDir, projType, repoName)
 		return fmt.Errorf("script '%s' not available in %s", script, repoName)
 	}
 
 	fmt.Printf("=== %s: %s ===\n", repoName, command)
-	if err := runShellCmdWithEnv(repoDir, command, wsEnv); err != nil {
-		return fmt.Errorf("%s failed: %w", script, err)
+	return runShellCmdWithEnv(repoDir, command, wsEnv)
+}
+
+func runRawCommand(wsPath string, args []string, wsEnv map[string]string) error {
+	command := strings.Join(args, " ")
+	fmt.Printf("=== run: %s ===\n", command)
+	return runShellCmdWithEnv(wsPath, command, wsEnv)
+}
+
+func ensureNodeModules(repoDir string, wsEnv map[string]string) error {
+	nodeModules := filepath.Join(repoDir, "node_modules")
+	needsInstall := false
+
+	if _, err := os.Stat(nodeModules); os.IsNotExist(err) {
+		fmt.Printf("node_modules missing — running npm install...\n")
+		needsInstall = true
+	} else if _, err := os.Stat(filepath.Join(nodeModules, ".package-lock.json")); os.IsNotExist(err) {
+		fmt.Printf("node_modules incomplete — running npm install...\n")
+		needsInstall = true
 	}
 
-	if script == "build" && !runPublished {
-		if err := autoLinkConsumers(wsPath, ws, repoName); err != nil {
-			fmt.Printf("Note: %v\n", err)
+	if needsInstall {
+		if err := runShellCmdWithEnv(repoDir, "npm install", wsEnv); err != nil {
+			return fmt.Errorf("npm install failed: %w", err)
 		}
+		fmt.Println()
 	}
-
 	return nil
 }
 
+func detectCurrentRepo(wsPath string, ws *workspace.Workspace) (string, string) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", ""
+	}
+
+	for name, repo := range ws.Repos {
+		repoDir := filepath.Join(wsPath, repo.Path)
+		absRepoDir, _ := filepath.Abs(repoDir)
+
+		if cwd == absRepoDir || isSubdir(absRepoDir, cwd) {
+			return name, absRepoDir
+		}
+	}
+	return "", ""
+}
+
+func isSubdir(parent, child string) bool {
+	rel, err := filepath.Rel(parent, child)
+	if err != nil {
+		return false
+	}
+	return !filepath.IsAbs(rel) && len(rel) > 0 && rel[0] != '.'
+}
+
 func detectProjectType(repoDir string) projectType {
-	if fileExistsRun(filepath.Join(repoDir, "package.json")) {
+	if fileExistsCheck(filepath.Join(repoDir, "package.json")) {
 		return projectTypeNode
 	}
-	if fileExistsRun(filepath.Join(repoDir, "build.gradle")) || fileExistsRun(filepath.Join(repoDir, "build.gradle.kts")) {
+	if fileExistsCheck(filepath.Join(repoDir, "build.gradle")) || fileExistsCheck(filepath.Join(repoDir, "build.gradle.kts")) {
 		return projectTypeGradle
 	}
-	if fileExistsRun(filepath.Join(repoDir, "go.mod")) {
+	if fileExistsCheck(filepath.Join(repoDir, "go.mod")) {
 		return projectTypeGo
 	}
-	if fileExistsRun(filepath.Join(repoDir, "Makefile")) {
+	if fileExistsCheck(filepath.Join(repoDir, "Makefile")) {
 		return projectTypeMake
 	}
 	return projectTypeUnknown
@@ -334,11 +229,9 @@ func buildNpmCommand(repoDir, script string, extraArgs []string) string {
 	if scripts == nil {
 		return ""
 	}
-
 	if _, ok := scripts[script]; !ok {
 		return ""
 	}
-
 	cmd := fmt.Sprintf("npm run %s", script)
 	if len(extraArgs) > 0 {
 		cmd += " -- " + strings.Join(extraArgs, " ")
@@ -390,7 +283,6 @@ func getNpmScripts(repoDir string) map[string]string {
 	if err != nil {
 		return nil
 	}
-
 	var pkg struct {
 		Scripts map[string]string `json:"scripts"`
 	}
@@ -402,7 +294,6 @@ func getNpmScripts(repoDir string) map[string]string {
 
 func showAvailableScripts(repoDir string, projType projectType, repoName string) {
 	fmt.Printf("\nAvailable scripts in %s:\n", repoName)
-
 	switch projType {
 	case projectTypeNode:
 		scripts := getNpmScripts(repoDir)
@@ -421,9 +312,7 @@ func showAvailableScripts(repoDir string, projType projectType, repoName string)
 	case projectTypeGradle:
 		fmt.Println("  spark-cli run build")
 		fmt.Println("  spark-cli run test")
-		fmt.Println("  spark-cli run clean")
 		fmt.Println("  spark-cli run clean build")
-		fmt.Println("  (or any Gradle task)")
 	case projectTypeGo:
 		fmt.Println("  spark-cli run build")
 		fmt.Println("  spark-cli run test")
@@ -431,177 +320,18 @@ func showAvailableScripts(repoDir string, projType projectType, repoName string)
 		fmt.Println("  spark-cli run vet")
 	case projectTypeMake:
 		fmt.Println("  spark-cli run <target>")
-		fmt.Println("  (any Makefile target)")
 	default:
 		fmt.Println("  (no recognized project type)")
 	}
 	fmt.Println()
 }
 
-func fileExistsRun(path string) bool {
+func fileExistsCheck(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
 
-func autoLinkDeps(wsPath string, ws *workspace.Workspace, name string) error {
-	modelName, mapping := findModelForConsumer(wsPath, ws, name)
-	if mapping == nil {
-		return nil
-	}
-
-	modelRepo, exists := ws.Repos[modelName]
-	if !exists {
-		return nil
-	}
-
-	modelDir := filepath.Join(wsPath, modelRepo.Path)
-	consumerDir := filepath.Join(wsPath, ws.Repos[name].Path)
-
-	if !npm.IsBuiltForCodegen(modelDir, mapping.codegen) {
-		return nil // local build not available, use whatever is installed
-	}
-
-	if npm.IsLinked(consumerDir, mapping.pkg) {
-		return nil // already symlinked
-	}
-
-	buildDir := npm.BuildOutputDirForCodegen(modelDir, mapping.codegen)
-
-	if err := npm.DirectLink(consumerDir, mapping.pkg, buildDir); err != nil {
-		return fmt.Errorf("link %s -> %s failed: %w", mapping.pkg, modelName, err)
-	}
-
-	fmt.Printf("Using local %s\n", mapping.pkg)
-	return nil
-}
-
-func autoLinkConsumers(wsPath string, ws *workspace.Workspace, name string) error {
-	modelConsumers := buildModelConsumersFromWorkspace(wsPath, ws)
-	consumers, isModel := modelConsumers[name]
-	if !isModel {
-		return nil
-	}
-
-	modelDir := filepath.Join(wsPath, ws.Repos[name].Path)
-
-	for _, mapping := range consumers {
-		consumerRepo, exists := ws.Repos[mapping.consumer]
-		if !exists {
-			continue
-		}
-
-		consumerDir := filepath.Join(wsPath, consumerRepo.Path)
-		if _, err := os.Stat(consumerDir); os.IsNotExist(err) {
-			continue
-		}
-
-		if !npm.IsBuiltForCodegen(modelDir, mapping.codegen) {
-			continue
-		}
-
-		if npm.IsLinked(consumerDir, mapping.pkg) {
-			continue
-		}
-
-		buildDir := npm.BuildOutputDirForCodegen(modelDir, mapping.codegen)
-
-		if err := npm.DirectLink(consumerDir, mapping.pkg, buildDir); err != nil {
-			fmt.Printf("Warning: link %s in %s failed: %v\n", mapping.pkg, mapping.consumer, err)
-			continue
-		}
-
-		fmt.Printf("Linked: %s now uses local %s\n", mapping.consumer, name)
-	}
-
-	return nil
-}
-
-func buildRecursivelyRun(wsPath string, ws *workspace.Workspace, target string) error {
-	deps := getDepsForRun(wsPath, ws, target)
-
-	if len(deps) > 0 {
-		fmt.Printf("Building dependencies first: %v\n\n", deps)
-		for _, dep := range deps {
-			repo, exists := ws.Repos[dep]
-			if !exists {
-				continue
-			}
-
-			repoDir := filepath.Join(wsPath, repo.Path)
-			if _, err := os.Stat(repoDir); os.IsNotExist(err) {
-				fmt.Printf("[skip] %s (not cloned)\n\n", dep)
-				continue
-			}
-
-			if err := runScript(wsPath, ws, dep, "build", nil); err != nil {
-				return fmt.Errorf("dependency build failed at '%s': %w", dep, err)
-			}
-			fmt.Println()
-		}
-	}
-
-	return runScript(wsPath, ws, target, "build", nil)
-}
-
-func getDepsForRun(wsPath string, ws *workspace.Workspace, name string) []string {
-	var deps []string
-	seen := make(map[string]bool)
-
-	var collect func(n string)
-	collect = func(n string) {
-		if seen[n] {
-			return
-		}
-		seen[n] = true
-
-		if modelName, mapping := findModelForConsumer(wsPath, ws, n); mapping != nil {
-			if _, exists := ws.Repos[modelName]; exists {
-				collect(modelName)
-				if !containsRun(deps, modelName) {
-					deps = append(deps, modelName)
-				}
-			}
-		}
-
-		if repo, exists := ws.Repos[n]; exists {
-			for _, dep := range repo.Dependencies {
-				if _, depExists := ws.Repos[dep]; depExists {
-					collect(dep)
-					if !containsRun(deps, dep) {
-						deps = append(deps, dep)
-					}
-				}
-			}
-		}
-	}
-
-	collect(name)
-
-	seen[name] = false
-	var result []string
-	for _, d := range deps {
-		if d != name {
-			result = append(result, d)
-		}
-	}
-	return result
-}
-
-func containsRun(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
-
-func runShellCmd(dir, command string) error {
-	return runShellCmdWithEnv(dir, command, nil)
-}
-
 func runShellCmdWithEnv(dir, command string, wsEnv map[string]string) error {
-	// Use the user's login shell to preserve PATH (nvm, homebrew, etc.)
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/zsh"
@@ -614,14 +344,12 @@ func runShellCmdWithEnv(dir, command string, wsEnv map[string]string) error {
 	cmd.Stdin = os.Stdin
 
 	if len(wsEnv) > 0 {
-		// Start with current environment, overlay workspace env
 		envMap := make(map[string]string)
 		for _, e := range os.Environ() {
 			if idx := strings.IndexByte(e, '='); idx != -1 {
 				envMap[e[:idx]] = e[idx+1:]
 			}
 		}
-		// Workspace env overrides existing
 		for k, v := range wsEnv {
 			envMap[k] = v
 		}
@@ -635,22 +363,17 @@ func runShellCmdWithEnv(dir, command string, wsEnv map[string]string) error {
 	return cmd.Run()
 }
 
-// ensureGitHubToken checks if GITHUB_TOKEN is set in the environment or workspace env.
-// If not, attempts to source it from `gh auth token`.
+// ensureGitHubToken auto-resolves GITHUB_TOKEN from gh auth if not already set
 func ensureGitHubToken(wsEnv map[string]string) map[string]string {
-	// Already set in process env
 	if os.Getenv("GITHUB_TOKEN") != "" {
 		return wsEnv
 	}
-
-	// Already set in workspace env
 	if wsEnv != nil {
 		if _, ok := wsEnv["GITHUB_TOKEN"]; ok {
 			return wsEnv
 		}
 	}
 
-	// Try to get from gh CLI
 	out, err := exec.Command("gh", "auth", "token").Output()
 	if err != nil {
 		return wsEnv
@@ -670,7 +393,5 @@ func ensureGitHubToken(wsEnv map[string]string) map[string]string {
 }
 
 func init() {
-	runCmd.Flags().BoolVarP(&runRecursive, "recursive", "r", false, "Build dependencies first (only for 'build')")
-	runCmd.Flags().BoolVar(&runPublished, "published", false, "Force use of published packages (no local linking)")
 	rootCmd.AddCommand(runCmd)
 }
