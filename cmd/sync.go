@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -18,6 +19,7 @@ var (
 	syncBranch   string
 	syncNoRebase bool
 	syncEnv      string
+	syncInstall  bool
 )
 
 var syncCmd = &cobra.Command{
@@ -374,6 +376,37 @@ func syncAllRepos(wsPath string, ws *workspace.Workspace) error {
 	}
 
 	fmt.Printf("\n%d repo(s) synced\n", synced)
+
+	if syncInstall {
+		fmt.Println("\nRunning npm install on all repos...")
+		wsEnv := make(map[string]string)
+		dotEnv, _ := workspace.ReadGlobalEnv(wsPath)
+		for k, v := range dotEnv {
+			wsEnv[k] = v
+		}
+		for k, v := range ws.Env {
+			wsEnv[k] = v
+		}
+		wsEnv = ensureGitHubTokenSync(wsEnv)
+
+		var installed int
+		for _, name := range allNames {
+			repo := ws.Repos[name]
+			repoDir := filepath.Join(wsPath, repo.Path)
+			if _, err := os.Stat(filepath.Join(repoDir, "package.json")); os.IsNotExist(err) {
+				continue
+			}
+			fmt.Printf("  npm install %s...", name)
+			if err := runSyncCmd(repoDir, "npm install", wsEnv); err != nil {
+				fmt.Printf(" ✗ %v\n", err)
+			} else {
+				fmt.Printf(" ✓\n")
+				installed++
+			}
+		}
+		fmt.Printf("%d repo(s) installed\n", installed)
+	}
+
 	return nil
 }
 
@@ -402,9 +435,63 @@ func syncRepoInternal(wsPath string, ws *workspace.Workspace, name string, repo 
 	return nil
 }
 
+func runSyncCmd(dir, command string, wsEnv map[string]string) error {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/zsh"
+	}
+	cmd := exec.Command(shell, "-l", "-c", command)
+	cmd.Dir = dir
+	// Suppress output for cleaner sync
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+
+	if len(wsEnv) > 0 {
+		envMap := make(map[string]string)
+		for _, e := range os.Environ() {
+			if idx := strings.IndexByte(e, '='); idx != -1 {
+				envMap[e[:idx]] = e[idx+1:]
+			}
+		}
+		for k, v := range wsEnv {
+			envMap[k] = v
+		}
+		var env []string
+		for k, v := range envMap {
+			env = append(env, fmt.Sprintf("%s=%s", k, v))
+		}
+		cmd.Env = env
+	}
+	return cmd.Run()
+}
+
+func ensureGitHubTokenSync(wsEnv map[string]string) map[string]string {
+	if os.Getenv("GITHUB_TOKEN") != "" {
+		return wsEnv
+	}
+	if wsEnv != nil {
+		if _, ok := wsEnv["GITHUB_TOKEN"]; ok {
+			return wsEnv
+		}
+	}
+	out, err := exec.Command("gh", "auth", "token").Output()
+	if err != nil {
+		return wsEnv
+	}
+	token := strings.TrimSpace(string(out))
+	if token != "" {
+		if wsEnv == nil {
+			wsEnv = make(map[string]string)
+		}
+		wsEnv["GITHUB_TOKEN"] = token
+	}
+	return wsEnv
+}
+
 func init() {
 	syncCmd.Flags().StringVar(&syncBranch, "branch", "", "Target branch (default: main)")
 	syncCmd.Flags().BoolVar(&syncNoRebase, "no-rebase", false, "Use git pull instead of rebase")
 	syncCmd.Flags().StringVar(&syncEnv, "env", "", "Refresh .env from this SSM environment (e.g. beta, prod)")
+	syncCmd.Flags().BoolVarP(&syncInstall, "install", "i", false, "Run npm install on all repos after sync")
 	workspaceCmd.AddCommand(syncCmd)
 }
